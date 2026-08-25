@@ -1,0 +1,50 @@
+---
+- name: Disable MongoDB Authentication (non-production only)
+  hosts: mongodb_cluster
+  become: yes
+  serial: 1
+  vars:
+    mongodb_version: "8.3.8"
+    replica_set_name: "turingpi_rs"
+    mongodb_port: 27017
+
+  pre_tasks:
+    - name: Require explicit confirmation before disabling authentication
+      ansible.builtin.assert:
+        that:
+          - disable_mongodb_auth | default(false) | bool
+        fail_msg: >-
+          This playbook disables MongoDB authentication and is intended only for
+          convenience or testing. Re-run with -e disable_mongodb_auth=true if this
+          is really intended.
+
+  tasks:
+    - name: Recreate MongoDB without client or replica-set authentication
+      community.docker.docker_container:
+        name: mongodb
+        image: "mongo:{{ mongodb_version }}"
+        state: started
+        restart_policy: always
+        recreate: true
+        ports:
+          - "{{ mongodb_port }}:27017"
+        etc_hosts:
+          rk1-node1: "{{ hostvars['rk1-node1'].ansible_host }}"
+          rk1-node2: "{{ hostvars['rk1-node2'].ansible_host }}"
+          rk1-node3: "{{ hostvars['rk1-node3'].ansible_host }}"
+          rk1-node4: "{{ hostvars['rk1-node4'].ansible_host }}"
+        volumes:
+          - /data/mongodb:/data/db
+        command: >-
+          mongod --replSet {{ replica_set_name }} --bind_ip_all
+        healthcheck:
+          test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+
+    - name: Wait for unauthenticated MongoDB to be ready
+      ansible.builtin.wait_for:
+        port: "{{ mongodb_port }}"
+        delay: 5
+        timeout: 60

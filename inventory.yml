@@ -1,0 +1,47 @@
+all:
+  children:
+    mongodb_cluster:
+      children:
+        mongodb_data:
+          hosts:
+            rk1-node1:
+              ansible_host: 192.168.2.201
+              mongodb_role: primary
+            rk1-node2:
+              ansible_host: 192.168.2.202
+              mongodb_role: secondary
+            rk1-node3:
+              ansible_host: 192.168.2.203
+              mongodb_role: secondary
+    control:
+      hosts:
+        rk1-node4:
+          ansible_host: 192.168.2.204
+    monitoring:
+      hosts:
+        rk1-node4:
+          ansible_host: 192.168.2.204
+    # TuringPi 2 BMC - always powered while the PSU is on, even when the RK1
+    # compute modules are switched off. Used by stop_platform.yml/start_platform.yml
+    # to cut/restore power to individual node slots via the bmcd REST API.
+    bmc:
+      hosts:
+        turingpi-bmc:
+          ansible_host: 192.168.2.199
+          ansible_connection: local
+  vars:
+    ansible_user: "{{ vault_ansible_user }}"
+    ansible_ssh_private_key_file: "{{ vault_ansible_ssh_private_key_file }}"
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+    bmc_base_url: "{{ vault_bmc_base_url }}"
+    bmc_user: "{{ vault_bmc_user }}"
+    bmc_password: "{{ vault_bmc_password }}"
+    bmc_validate_certs: "{{ vault_bmc_validate_certs }}"
+    dns_domain: "thinselin.local"
+    dns_server: "192.168.2.14"
+    # Maps each cluster host to its physical TuringPi node slot (1-4)
+    bmc_node_index:
+      rk1-node1: 1
+      rk1-node2: 2
+      rk1-node3: 3
+      rk1-node4: 4

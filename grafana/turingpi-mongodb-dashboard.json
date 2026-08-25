@@ -1,0 +1,131 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "watt", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "hass_sensor_power_w{entity=\"sensor.zbpvol01_power\"}", "legendFormat": "Cluster power", "refId": "A"}],
+      "title": "Cluster Power",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\"}[5m])))", "legendFormat": "{{instance}}", "refId": "A"}],
+      "title": "CPU Load",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "celsius"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "node_hwmon_temp_celsius{job=\"node-exporter\",instance=~\"rk1-node[1-3]:9100\"}", "legendFormat": "{{instance}} {{chip}} {{sensor}}", "refId": "A"}],
+      "title": "RK1 Temperature",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "sum by (instance) (rate(node_disk_read_bytes_total{job=\"node-exporter\",instance=~\"rk1-node[1-3]:9100\",device=~\"nvme.*\"}[5m]))", "legendFormat": "{{instance}} read", "refId": "A"},
+        {"expr": "sum by (instance) (rate(node_disk_written_bytes_total{job=\"node-exporter\",instance=~\"rk1-node[1-3]:9100\",device=~\"nvme.*\"}[5m]))", "legendFormat": "{{instance}} write", "refId": "B"}
+      ],
+      "title": "NVMe I/O Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 5,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "sum(rate(mongodb_ss_opcounters{legacy_op_type=\"insert\"}[5m]))", "legendFormat": "Insert", "refId": "A"},
+        {"expr": "sum(rate(mongodb_ss_opcounters{legacy_op_type=\"query\"}[5m]))", "legendFormat": "Read/query", "refId": "B"},
+        {"expr": "sum(rate(mongodb_ss_opcounters{legacy_op_type=\"update\"}[5m]))", "legendFormat": "Update", "refId": "C"},
+        {"expr": "sum(rate(mongodb_ss_opcounters[5m]))", "legendFormat": "Total", "refId": "D"}
+      ],
+      "title": "MongoDB Operations/sec (Cluster)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "bytes", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 8000000000}, {"color": "red", "value": 9500000000}]}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "id": 6,
+      "options": {"orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showThresholdLabels": false, "showThresholdMarkers": true},
+      "targets": [{"expr": "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "legendFormat": "{{instance}} used", "refId": "A"}],
+      "title": "WiredTiger Cache Used",
+      "type": "gauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "id": 7,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "mongodb_ss_wt_cache_maximum_bytes_configured", "legendFormat": "{{instance}} max", "refId": "A"},
+        {"expr": "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "legendFormat": "{{instance}} used", "refId": "B"}
+      ],
+      "title": "WiredTiger Cache Size",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "id": 8,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "100 * mongodb_ss_wt_cache_bytes_currently_in_the_cache / mongodb_ss_wt_cache_maximum_bytes_configured", "legendFormat": "{{instance}}", "refId": "A"}],
+      "title": "WiredTiger Cache Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 24},
+      "id": 9,
+      "options": {"legend": {"displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "mongodb_ss_connections{conn_type=\"current\"}", "legendFormat": "{{node_name}} connections", "refId": "A"},
+        {"expr": "count by (node_name, rs_state) (mongodb_ss_repl_setVersion)", "legendFormat": "{{node_name}} state {{rs_state}}", "refId": "B"}
+      ],
+      "title": "Connections and Replica Set State (1=Primary, 2=Secondary)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 24},
+      "id": 10,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"node-exporter\"})", "legendFormat": "{{instance}} memory used", "refId": "A"}],
+      "title": "Node Memory Pressure",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["turingpi", "mongodb", "arm"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["5s", "15s", "30s", "1m", "5m", "15m"], "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "7d"]},
+  "title": "TuringPi MongoDB Cluster",
+  "uid": "turingpi-mongodb",
+  "version": 1
+}

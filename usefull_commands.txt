@@ -1,0 +1,47 @@
+mongodb://<user>:<password>@rk1-node1:27017,rk1-node2:27017,rk1-node3:27017/admin?authSource=admin&replicaSet=turingpi_rs
+mongodb://<user>:<password>@<data-node-ip>:27017/admin?authSource=admin&directConnection=true
+
+docker exec mongodb mongosh \
+  -u '<vault mongodb admin user>' -p '<vault mongodb admin password>' \
+  --authenticationDatabase admin \
+  --quiet \
+  --eval 'rs.status().members.map(m => ({name:m.name, state:m.stateStr, health:m.health}))'
+
+docker exec mongodb mongosh \
+  -u '<vault mongodb admin user>' -p '<vault mongodb admin password>' \
+  --authenticationDatabase admin \
+  --quiet \
+  --eval 'rs.status()'
+
+docker exec mongodb getent hosts rk1-node1 rk1-node2 rk1-node3 rk1-node4
+
+docker inspect prometheus \
+  --format '{{range .HostConfig.ExtraHosts}}{{println .}}{{end}}'
+
+# Run on rk1-node1, rk1-node2, or rk1-node3; the exporter is not on rk1-node4.
+docker inspect mongodb-exporter \
+  --format '{{range .HostConfig.ExtraHosts}}{{println .}}{{end}}'
+
+ansible-playbook --ask-vault-pass -i inventory.yml setup_monitoring.yml -e homeassistant_target=<ha-host>:8123 -e homeassistant_token=<vault home assistant token>
+
+ansible-playbook --ask-vault-pass -i inventory.yml disable_mongodb_auth.yml -e disable_mongodb_auth=true
+ansible-playbook --ask-vault-pass -i inventory.yml ycsb_load_test.yml -e confirm_unauthenticated_ycsb=true
+ansible-playbook --ask-vault-pass -i inventory.yml ycsb_endurance_test.yml -e confirm_unauthenticated_ycsb=true
+
+{job="iot-power-monitor", entity="sensor.zbpvol01_power"}
+
+HA configuration.yaml
+  prometheus:
+  requires_auth: true
+  filter:
+    include_entities:
+      - sensor.zbpvol01_power
+
+docker logs prometheus
+curl http://localhost:9090/-/ready
+
+ssh -L 9999:127.0.0.1:9999 <ssh-user>@<control-node>
+
+ansible-playbook --ask-vault-pass -i inventory.yml 
+ansible-playbook -i inventory.yml --vault-password-file vault-password-file
+

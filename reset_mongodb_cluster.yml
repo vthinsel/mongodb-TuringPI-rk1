@@ -1,0 +1,62 @@
+---
+# Destructive reset for the MongoDB replica set.
+# This removes MongoDB containers and all database files so the next deploy
+# creates a clean three-member data-bearing replica set.
+#
+# Usage:
+#   ansible-playbook -i inventory.yml reset_mongodb_cluster.yml -e confirm_cluster_reset=true
+
+- name: Confirm destructive MongoDB cluster reset
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Require explicit reset confirmation
+      ansible.builtin.assert:
+        that:
+          - confirm_cluster_reset | default(false) | bool
+        fail_msg: >-
+          This playbook deletes all MongoDB data on rk1-node1..3. Re-run with
+          -e confirm_cluster_reset=true if this is intended.
+
+- name: Reset MongoDB data nodes
+  hosts: mongodb_data
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Stop MongoDB container
+      community.docker.docker_container:
+        name: mongodb
+        state: stopped
+      failed_when: false
+
+    - name: Remove MongoDB container
+      community.docker.docker_container:
+        name: mongodb
+        state: absent
+
+    - name: Remove MongoDB data and key files
+      ansible.builtin.file:
+        path: /data/mongodb
+        state: absent
+
+- name: Remove legacy MongoDB container from control node
+  hosts: control
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Remove obsolete MongoDB arbiter container if present
+      community.docker.docker_container:
+        name: mongodb-arbiter
+        state: absent
+
+- name: Report reset completion
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Display next step
+      ansible.builtin.debug:
+        msg: >-
+          MongoDB has been reset. Deploy a clean three-member cluster with
+          ansible-playbook -i inventory.yml deploy_mongodb_cluster.yaml.

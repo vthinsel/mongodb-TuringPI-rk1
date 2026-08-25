@@ -1,0 +1,286 @@
+---
+- name: Setup Monitoring Stack for TuringPi MongoDB Cluster
+  hosts: rk1-node4
+  become: yes
+  vars:
+    monitoring_storage_device: "/dev/nvme0n1"
+    monitoring_storage_mount: "/monitoring"
+    monitoring_dir: "{{ monitoring_storage_mount }}"
+    
+  tasks:
+    - name: 💾 Create monitoring storage mount point
+      file:
+        path: "{{ monitoring_storage_mount }}"
+        state: directory
+        mode: '0755'
+
+    - name: 💾 Format monitoring NVMe drive with XFS
+      community.general.filesystem:
+        fstype: xfs
+        dev: "{{ monitoring_storage_device }}"
+
+    - name: 💾 Mount monitoring NVMe drive with optimal options
+      mount:
+        path: "{{ monitoring_storage_mount }}"
+        src: "{{ monitoring_storage_device }}"
+        fstype: xfs
+        opts: noatime,nodiratime,logbufs=8
+        state: mounted
+
+    - name: 📊 Create monitoring directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ monitoring_dir }}"
+        - "{{ monitoring_dir }}/prometheus"
+        - "{{ monitoring_dir }}/prometheus/data"
+        - "{{ monitoring_dir }}/grafana"
+        - "{{ monitoring_dir }}/grafana/data"
+        - "{{ monitoring_dir }}/grafana/provisioning"
+        - "{{ monitoring_dir }}/grafana/provisioning/datasources"
+        - "{{ monitoring_dir }}/grafana/provisioning/dashboards"
+        - "{{ monitoring_dir }}/node-exporter"
+
+    - name: 📊 Set Prometheus data directory ownership
+      file:
+        path: "{{ monitoring_dir }}/prometheus/data"
+        owner: "65534"
+        group: "65534"
+        mode: '0755'
+
+    - name: 📊 Set Grafana data directory ownership
+      file:
+        path: "{{ monitoring_dir }}/grafana/data"
+        owner: "472"
+        group: "472"
+        mode: '0755'
+        
+    - name: 📊 Create Prometheus configuration
+      copy:
+        content: |
+          global:
+            scrape_interval: 15s
+            evaluation_interval: 15s
+            external_labels:
+              cluster: 'turingpi-mongodb'
+              
+          scrape_configs:
+            - job_name: 'prometheus'
+              static_configs:
+                - targets: ['localhost:9090']
+                
+            - job_name: 'node-exporter'
+              static_configs:
+                - targets: 
+                  - 'rk1-node1:9100'
+                  - 'rk1-node2:9100' 
+                  - 'rk1-node3:9100'
+                  - 'rk1-node4:9100'
+                  
+            - job_name: 'mongodb-exporter'
+              static_configs:
+                - targets:
+                    - 'rk1-node1:9216'
+                  labels:
+                    node_name: 'rk1-node1'
+                    service_name: 'mongodb'
+                    cluster: 'rk1-mongo'
+                    replication_set: 'turingpi_rs'
+                    service_type: 'mongodb'
+                    environment: 'homelab'
+                - targets:
+                    - 'rk1-node2:9216'
+                  labels:
+                    node_name: 'rk1-node2'
+                    service_name: 'mongodb'
+                    cluster: 'rk1-mongo'
+                    replication_set: 'turingpi_rs'
+                    service_type: 'mongodb'
+                    environment: 'homelab'
+                - targets:
+                    - 'rk1-node3:9216'
+                  labels:
+                    node_name: 'rk1-node3'
+                    service_name: 'mongodb'
+                    cluster: 'rk1-mongo'
+                    replication_set: 'turingpi_rs'
+                    service_type: 'mongodb'
+                    environment: 'homelab'
+            - job_name: 'iot-power-monitor'
+              metrics_path: /api/prometheus
+              static_configs:
+                - targets: ['192.168.2.34:8123']
+              metric_relabel_configs:
+                - source_labels: [__name__, entity]
+                  regex: 'hass_sensor_power_w;sensor\.zbpvol01_power'
+                  action: keep
+        dest: "{{ monitoring_dir }}/prometheus/prometheus.yml"
+        
+    - name: 📊 Create Docker Compose for monitoring stack
+      copy:
+        content: |
+          services:
+            prometheus:
+              image: prom/prometheus:latest
+              container_name: prometheus
+              restart: unless-stopped
+              extra_hosts:
+                - "rk1-node1:{{ hostvars['rk1-node1'].ansible_host }}"
+                - "rk1-node2:{{ hostvars['rk1-node2'].ansible_host }}"
+                - "rk1-node3:{{ hostvars['rk1-node3'].ansible_host }}"
+                - "rk1-node4:{{ hostvars['rk1-node4'].ansible_host }}"
+              ports:
+                - "9090:9090"
+              volumes:
+                - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+                - ./prometheus/data:/prometheus
+              command:
+                - '--config.file=/etc/prometheus/prometheus.yml'
+                - '--storage.tsdb.path=/prometheus'
+                - '--web.console.libraries=/etc/prometheus/console_libraries'
+                - '--web.console.templates=/etc/prometheus/consoles'
+                - '--storage.tsdb.retention.time=30d'
+                - '--web.enable-lifecycle'
+                
+            grafana:
+              image: grafana/grafana:latest
+              container_name: grafana
+              restart: unless-stopped
+              extra_hosts:
+                - "rk1-node1:{{ hostvars['rk1-node1'].ansible_host }}"
+                - "rk1-node2:{{ hostvars['rk1-node2'].ansible_host }}"
+                - "rk1-node3:{{ hostvars['rk1-node3'].ansible_host }}"
+                - "rk1-node4:{{ hostvars['rk1-node4'].ansible_host }}"
+              ports:
+                - "3000:3000"
+              volumes:
+                - ./grafana/data:/var/lib/grafana
+                - ./grafana/provisioning:/etc/grafana/provisioning
+              environment:
+                - GF_SECURITY_ADMIN_PASSWORD={{ vault_grafana_admin_password }}
+                - GF_USERS_ALLOW_SIGN_UP=false
+                - GF_INSTALL_PLUGINS=grafana-piechart-panel
+                
+            node-exporter:
+              image: prom/node-exporter:latest
+              container_name: node-exporter
+              restart: unless-stopped
+              extra_hosts:
+                - "rk1-node1:{{ hostvars['rk1-node1'].ansible_host }}"
+                - "rk1-node2:{{ hostvars['rk1-node2'].ansible_host }}"
+                - "rk1-node3:{{ hostvars['rk1-node3'].ansible_host }}"
+                - "rk1-node4:{{ hostvars['rk1-node4'].ansible_host }}"
+              ports:
+                - "9100:9100"
+              volumes:
+                - /proc:/host/proc:ro
+                - /sys:/host/sys:ro
+                - /:/rootfs:ro
+              command:
+                - '--path.procfs=/host/proc'
+                - '--path.rootfs=/rootfs'
+                - '--path.sysfs=/host/sys'
+                - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+                
+        dest: "{{ monitoring_dir }}/docker-compose.yml"
+      no_log: true
+        
+    - name: 📊 Provision Prometheus datasource in Grafana
+      copy:
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              uid: prometheus
+              type: prometheus
+              access: proxy
+              url: http://prometheus:9090
+              isDefault: true
+              editable: false
+        dest: "{{ monitoring_dir }}/grafana/provisioning/datasources/prometheus.yml"
+
+    - name: 📊 Provision TuringPi MongoDB dashboard in Grafana
+      copy:
+        src: grafana/turingpi-mongodb-dashboard.json
+        dest: "{{ monitoring_dir }}/grafana/provisioning/dashboards/turingpi-mongodb-dashboard.json"
+        mode: '0644'
+
+    - name: 📊 Configure Grafana dashboard provider
+      copy:
+        content: |
+          apiVersion: 1
+          providers:
+            - name: TuringPi
+              orgId: 1
+              folder: TuringPi
+              type: file
+              disableDeletion: true
+              updateIntervalSeconds: 30
+              allowUiUpdates: false
+              options:
+                path: /etc/grafana/provisioning/dashboards
+        dest: "{{ monitoring_dir }}/grafana/provisioning/dashboards/provider.yml"
+        
+    - name: 📊 Start monitoring stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ monitoring_dir }}"
+        state: present
+        
+    - name: ✅ Monitoring setup complete
+      debug:
+        msg: |
+          🎉 TuringPi Monitoring Stack is ready!
+          
+          Access Points:
+          • Prometheus: http://rk1-node4:9090
+          • Grafana: http://rk1-node4:3000 (credentials are stored in Ansible Vault)
+          • Node Exporter: http://rk1-node4:9100
+          
+          The TuringPi MongoDB dashboard and Prometheus datasource are provisioned automatically.
+          Run YCSB benchmarks to generate workload metrics.
+
+# Deploy Node Exporter to all data nodes
+- name: Deploy Node Exporter to MongoDB nodes
+  hosts: mongodb_data
+  become: yes
+  
+  tasks:
+    - name: 📊 Run Node Exporter container
+      docker_container:
+        name: node-exporter
+        image: prom/node-exporter:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "9100:9100"
+        volumes:
+          - "/proc:/host/proc:ro"
+          - "/sys:/host/sys:ro" 
+          - "/:/rootfs:ro"
+        command: >
+          --path.procfs=/host/proc
+          --path.rootfs=/rootfs
+          --path.sysfs=/host/sys
+          --collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)
+          
+    - name: 📊 Run MongoDB Exporter container
+      docker_container:
+        name: mongodb-exporter
+        image: percona/mongodb_exporter:0.40.0
+        state: started
+        restart_policy: always
+        etc_hosts:
+          rk1-node1: "{{ hostvars['rk1-node1'].ansible_host }}"
+          rk1-node2: "{{ hostvars['rk1-node2'].ansible_host }}"
+          rk1-node3: "{{ hostvars['rk1-node3'].ansible_host }}"
+          rk1-node4: "{{ hostvars['rk1-node4'].ansible_host }}"
+        ports:
+          - "9216:9216"
+        env:
+          MONGODB_URI: "mongodb://{{ vault_mongodb_admin_user }}:{{ vault_mongodb_admin_password_uri }}@{{ inventory_hostname }}:27017/?authSource=admin&directConnection=true"
+        command: >
+          --mongodb.uri=mongodb://{{ vault_mongodb_admin_user }}:{{ vault_mongodb_admin_password_uri }}@{{ inventory_hostname }}:27017/?authSource=admin&directConnection=true
+          --collect-all
+      no_log: true

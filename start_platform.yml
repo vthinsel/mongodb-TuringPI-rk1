@@ -1,0 +1,94 @@
+---
+# Bring the whole TuringPi MongoDB showcase back up:
+#   1. Power on rk1-node1..3 via the BMC (rk1-node4 never went down - it runs Ansible)
+#   2. Wait for SSH/Docker to come back and (re)start the mongod containers
+#   3. Wait for the replica set to elect a PRIMARY
+#   4. Start the monitoring stack
+#
+# Usage: ansible-playbook -i inventory.yml start_platform.yml
+- name: 🔌 Power on RK1 nodes via BMC
+  hosts: bmc
+  gather_facts: no
+  tasks:
+    - name: 🔌 Power ON rk1-node1..3 (rk1-node4 was never powered off)
+      uri:
+        url: "{{ bmc_base_url }}/api/bmc?opt=set&type=power&node1=1&node2=1&node3=1"
+        method: GET
+        url_username: "{{ bmc_user }}"
+        url_password: "{{ bmc_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ bmc_validate_certs }}"
+        status_code: 200
+      register: bmc_power_on
+
+- name: ⏳ Wait for RK1 nodes to boot
+  hosts: mongodb_cluster:!rk1-node4
+  gather_facts: no
+  tasks:
+    - name: 🔎 Wait for SSH to come back up
+      ansible.builtin.wait_for_connection:
+        delay: 15
+        timeout: 180
+
+- name: 🍃 Ensure MongoDB containers are running
+  hosts: mongodb_cluster
+  gather_facts: no
+  become: yes
+  vars:
+    mongodb_admin_user: "{{ vault_mongodb_admin_user }}"
+    mongodb_admin_password: "{{ vault_mongodb_admin_password }}"
+  tasks:
+    - name: 🐳 Wait for Docker daemon
+      systemd:
+        name: docker
+        state: started
+      register: docker_state
+      until: docker_state is succeeded
+      retries: 10
+      delay: 5
+
+    # restart_policy 'always' brings these back automatically on daemon start,
+    # these tasks are just an idempotent safety net
+    - name: ✅ Start mongod data container
+      docker_container:
+        name: mongodb
+        state: started
+
+- name: 🎯 Wait for replica set to elect a PRIMARY
+  hosts: rk1-node1
+  gather_facts: no
+  become: yes
+  vars:
+    mongodb_admin_user: "{{ vault_mongodb_admin_user }}"
+    mongodb_admin_password: "{{ vault_mongodb_admin_password }}"
+  tasks:
+    - name: ⏳ Poll replica set status
+      shell: |
+        docker exec mongodb mongosh --quiet \
+          -u '{{ mongodb_admin_user }}' -p '{{ mongodb_admin_password }}' \
+          --authenticationDatabase admin \
+          --eval "rs.status().members.some(m => m.stateStr === 'PRIMARY')"
+      register: rs_ready
+      until: rs_ready.stdout.find("true") != -1
+      retries: 12
+      delay: 10
+      changed_when: false
+      no_log: true
+
+- name: 📊 Start monitoring stack
+  hosts: monitoring
+  become: yes
+  vars:
+    monitoring_dir: "/monitoring"
+  tasks:
+    - name: 📊 Start monitoring docker compose stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ monitoring_dir }}"
+        state: present
+
+    - name: ✅ Platform started
+      debug:
+        msg: |
+          🎉 TuringPi platform is back up!
+          • Replica set has a PRIMARY
+          • Monitoring stack running: http://rk1-node4:3000 (Grafana), http://rk1-node4:9090 (Prometheus)

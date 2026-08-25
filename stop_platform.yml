@@ -1,0 +1,104 @@
+---
+# Gracefully stop the whole TuringPi MongoDB showcase:
+#   1. Stop the monitoring stack (Prometheus/Grafana/exporters)
+#   2. Step down the MongoDB primary and stop all mongod containers
+#   3. Shut down rk1-node1..3's OS
+#   4. Cut power to rk1-node1..3 via the BMC (BMC chip itself stays powered)
+#
+# rk1-node4 is NEVER shut down or powered off here: it's the Ansible control
+# node (runs ansible-playbook itself), so it must stay up. Its monitoring
+# containers are still stopped like the rest of the platform.
+#
+# Usage: ansible-playbook -i inventory.yml stop_platform.yml
+- name: 📴 Stop monitoring stack
+  hosts: monitoring
+  become: yes
+  vars:
+    monitoring_dir: "/monitoring"
+  tasks:
+    - name: 📊 Stop monitoring docker compose stack (keeps bind-mounted data)
+      community.docker.docker_compose_v2:
+        project_src: "{{ monitoring_dir }}"
+        state: stopped
+
+- name: 🍃 Step down MongoDB primary (best effort)
+  hosts: mongodb_data
+  gather_facts: no
+  ignore_unreachable: yes
+  become: yes
+  vars:
+    mongodb_admin_user: "{{ vault_mongodb_admin_user }}"
+    mongodb_admin_password: "{{ vault_mongodb_admin_password }}"
+  tasks:
+    - name: 🎯 Step down this node if it is currently PRIMARY
+      shell: |
+        docker exec mongodb mongosh --quiet --eval "
+        if (db.hello().isWritablePrimary) {
+          db.getSiblingDB('admin').auth('{{ mongodb_admin_user }}', '{{ mongodb_admin_password }}');
+          rs.stepDown(60);
+        }"
+      register: step_down
+      failed_when: false
+      changed_when: false
+      #no_log: true
+
+- name: 🍃 Stop MongoDB containers
+  hosts: mongodb_cluster
+  gather_facts: no
+  ignore_unreachable: yes
+  become: yes
+  tasks:
+    - name: 🛑 Stop mongod data container
+      docker_container:
+        name: mongodb
+        state: stopped
+
+- name: 🔻 Shut down RK1 node operating systems (excluding the Ansible control node)
+  hosts: mongodb_cluster:!rk1-node4
+  gather_facts: no
+  ignore_unreachable: yes
+  become: yes
+  tasks:
+    - name: 💤 Power off the OS
+      community.general.shutdown:
+        msg: "Shutting down for TuringPi platform stop"
+      async: 1
+      poll: 0
+      ignore_errors: yes  # connection drops as soon as the node halts
+
+- name: 🔌 Power off RK1 nodes via BMC (excluding rk1-node4)
+  hosts: bmc
+  gather_facts: no
+  tasks:
+    - name: ⏳ Wait for rk1-node1..3 SSH services to stop before cutting power
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[item].ansible_host }}"
+        port: 22
+        state: stopped
+        timeout: 120
+      loop:
+        - rk1-node1
+        - rk1-node2
+        - rk1-node3
+
+    - name: 🔌 Power OFF rk1-node1..3 (rk1-node4 stays on - it runs Ansible)
+      uri:
+        url: "{{ bmc_base_url }}/api/bmc?opt=set&type=power&node1=0&node2=0&node3=0"
+        method: GET
+        url_username: "{{ bmc_user }}"
+        url_password: "{{ bmc_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ bmc_validate_certs }}"
+        status_code: 200
+      register: bmc_power_off
+
+    - name: ✅ Platform stopped
+      debug:
+        msg: |
+          🎉 TuringPi platform is now powered down (except rk1-node4).
+          • MongoDB containers stopped, primary stepped down beforehand
+          • Monitoring stack stopped
+          • rk1-node1..3 powered off via BMC
+          • rk1-node4 (Ansible control node / monitoring host) stays powered on
+
+          Run start_platform.yml to bring everything back up.
