@@ -56,6 +56,11 @@
         owner: "472"
         group: "472"
         mode: '0755'
+
+    - name: 🔐 Generate Grafana renderer authentication token
+      set_fact:
+        grafana_renderer_token: "{{ lookup('password', '/dev/null length=48 chars=ascii_letters,digits') }}"
+      no_log: true
         
     - name: 📊 Create Prometheus configuration
       copy:
@@ -148,6 +153,8 @@
               image: grafana/grafana:latest
               container_name: grafana
               restart: unless-stopped
+              depends_on:
+                - renderer
               extra_hosts:
                 - "rk1-node1:{{ hostvars['rk1-node1'].ansible_host }}"
                 - "rk1-node2:{{ hostvars['rk1-node2'].ansible_host }}"
@@ -162,6 +169,17 @@
                 - GF_SECURITY_ADMIN_PASSWORD={{ vault_grafana_admin_password }}
                 - GF_USERS_ALLOW_SIGN_UP=false
                 - GF_INSTALL_PLUGINS=grafana-piechart-panel
+                - GF_RENDERING_SERVER_URL=http://renderer:8081/render
+                - GF_RENDERING_CALLBACK_URL=http://grafana:3000/
+                - GF_RENDERING_RENDERER_TOKEN={{ grafana_renderer_token }}
+
+            renderer:
+              image: grafana/grafana-image-renderer:latest
+              container_name: grafana-image-renderer
+              restart: unless-stopped
+              environment:
+                - ENABLE_METRICS=true
+                - AUTH_TOKEN={{ grafana_renderer_token }}
                 
             node-exporter:
               image: prom/node-exporter:latest
