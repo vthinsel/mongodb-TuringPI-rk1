@@ -345,6 +345,13 @@ uses its emitted metric families, including `mongodb_ss_opcounters`,
 `mongodb_ss_connections`. Replica state is read from the `rs_state` label:
 `1` means PRIMARY and `2` means SECONDARY.
 
+Grafana's image renderer is also enabled and available for the dashboard.
+Use Grafana's panel or dashboard share controls to generate rendered PNG
+images for reports, issue tickets, and quick status updates. The renderer is
+deployed automatically as `grafana-image-renderer` by `setup_monitoring.yml`
+and is secured with a shared authentication token between Grafana and the
+renderer service.
+
 To install or refresh the dashboard and monitoring stack:
 
 ```bash

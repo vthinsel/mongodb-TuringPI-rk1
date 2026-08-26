@@ -1,0 +1,43 @@
+---
+# Update every RK1 compute node, including rk1-node4, one node at a time.
+# Usage: ansible-playbook -i inventory.yml update_rk1cluster.yaml [-e reboot=true]
+- name: Update RK1 cluster nodes
+  hosts: mongodb_cluster:control
+  serial: 1
+  become: yes
+  gather_facts: yes
+
+  vars:
+    reboot: false
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Upgrade all packages
+      ansible.builtin.apt:
+        upgrade: dist
+        autoremove: yes
+
+    - name: Pull all tagged Docker images
+      ansible.builtin.shell: |
+        docker image ls --format '{% raw %}{{.Repository}}:{{.Tag}}{% endraw %}' \
+          | awk '$1 !~ /^<none>:/ && $1 !~ /^:/ { print }' \
+          | sort -u \
+          | xargs -r -n1 docker pull
+      register: docker_image_updates
+      changed_when: false
+
+    - name: Check if reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reboot when requested and required
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when:
+        - reboot | bool
+        - reboot_required.stat.exists
