@@ -1,4 +1,5 @@
 # Ansible secrets and local password files
+tmp/
 vault_password_file
 *.vault-pass
 *.vault-password
