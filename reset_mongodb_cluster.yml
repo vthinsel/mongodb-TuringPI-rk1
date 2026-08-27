@@ -59,4 +59,4 @@
       ansible.builtin.debug:
         msg: >-
           MongoDB has been reset. Deploy a clean three-member cluster with
-          ansible-playbook -i inventory.yml deploy_mongodb_cluster.yaml.
+          ansible-playbook -i inventory.yml deploy_mongodb_cluster.yml.

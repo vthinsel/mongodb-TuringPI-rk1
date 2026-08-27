@@ -169,11 +169,14 @@ cd <your-repo>
 ./setup_facility-node.sh
 
 # Deploy MongoDB cluster
-ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yaml
+ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yml
 
 # Optional: remove MongoDB login/password requirements for convenience or tests
 # Run this only on non-production clusters; it disables authentication entirely.
 ansible-playbook --ask-vault-pass -i inventory.yml disable_mongodb_auth.yml -e disable_mongodb_auth=true
+
+# Update all RK1 nodes (including rk1-node4), one node at a time
+ansible-playbook --ask-vault-pass -i inventory.yml update_rk1cluster.yml -e reboot=true
 
 # Set up monitoring
 ansible-playbook --ask-vault-pass -i inventory.yml setup_monitoring.yml
@@ -241,6 +244,23 @@ scan/search profile for six hours (`21600` seconds) against the primary.
 In addition to YCSB, some PLGM runs were also performed; some using the extreme mode.
 Consistent results were observed, just like the YCSB test suite. The performance limitation is coming from the memory, limited to 16G on our RK1 modules. For higher performance for specific workload types, the 32G model would probably help.
 
+### Updating the RK1 Cluster
+
+Use `update_rk1cluster.yml` to refresh the OS and container images on all cluster nodes, including the control node `rk1-node4`. The playbook runs one host at a time (`serial: 1`) to avoid rolling reboots or package conflicts during the upgrade window.
+
+```bash
+ansible-playbook --ask-vault-pass -i inventory.yml update_rk1cluster.yml
+ansible-playbook --ask-vault-pass -i inventory.yml update_rk1cluster.yml -e reboot=true
+```
+
+What it does:
+- updates the apt cache and performs a full `apt upgrade` on every managed RK1 node
+- pulls all currently tagged Docker images from the local Docker daemon on each host
+- checks whether a reboot is needed because of kernel or package updates
+- reboots only when the `reboot=true` flag is set and `/var/run/reboot-required` exists
+
+This is intended for regular maintenance windows and is especially useful after the cluster has been running for a while and Docker image versions need refreshing.
+
 ### Ansible Vault Variables
 
 The playbooks load encrypted variables from `group_vars/all/vault.yml`. Create
@@ -273,7 +293,7 @@ ansible-vault view group_vars/all/vault.yml
 Use the vault password when running any playbook that loads the inventory:
 
 ```bash
-ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yaml
+ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yml
 ```
 
 The vault password is separate from all service passwords. Store it in a
@@ -424,7 +444,7 @@ Deliberately powered off `rk1-node1` (primary):
 # Disable transparent huge pages (ARM specific, made persistent via a systemd unit)
 echo never > /sys/kernel/mm/transparent_hugepage/enabled
 
-# MongoDB nodes: /dev/nvme0n1 is mounted at /data by deploy_mongodb_cluster.yaml
+# MongoDB nodes: /dev/nvme0n1 is mounted at /data by deploy_mongodb_cluster.yml
 mount -o noatime,nodiratime /dev/nvme0n1 /data
 
 # Monitoring node (rk1-node4): /dev/nvme0n1 is mounted at /monitoring by setup_monitoring.yml
@@ -437,9 +457,10 @@ sysctl -w net.core.wmem_max=16777216
 
 ### Further Performance Optimizations Worth Testing
 
-- Benchmark `mongodb_wiredtiger_cache_size_gb` at `8`, `9`, and `10` on the
-  16 GB RK1 nodes. Mixed scan workloads often improve when Linux keeps more RAM
-  for page cache and exporter overhead.
+- Benchmark `mongodb_wiredtiger_cache_size_gb` at `4`, `6`, and `8` on the
+  16 GB RK1 nodes. The system currently defaults to `6` to keep more RAM
+  available for Linux page cache, Docker overhead, and monitoring while still
+  preserving a useful WiredTiger working set.
 - A/B test `mongodb_wiredtiger_collection_compressor` between `zstd` and
   `snappy`. The current `zstd` default is space-efficient, but `snappy` often
   improves CPU-bound write throughput on ARM.
@@ -537,7 +558,7 @@ cat README.md
 
 # Deploy in under 30 minutes
 sh setup_facility-node.sh
-ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yaml
+ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yml
 ansible-playbook --ask-vault-pass -i inventory.yml setup_monitoring.yml
 
 # Optional, non-production only: allow unauthenticated MongoDB access for tests

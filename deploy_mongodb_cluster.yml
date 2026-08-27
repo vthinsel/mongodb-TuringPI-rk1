@@ -8,7 +8,7 @@
     mongodb_port: 27017
     mongodb_storage_device: "/dev/nvme0n1"
     mongodb_storage_mount: "/data"
-    mongodb_wiredtiger_cache_size_gb: 10
+    mongodb_wiredtiger_cache_size_gb: 6
     mongodb_wiredtiger_collection_compressor: "zstd"
     
   tasks:

@@ -1,6 +1,6 @@
 ---
 # Update every RK1 compute node, including rk1-node4, one node at a time.
-# Usage: ansible-playbook -i inventory.yml update_rk1cluster.yaml [-e reboot=true]
+# Usage: ansible-playbook -i inventory.yml update_rk1cluster.yml [-e reboot=true]
 - name: Update RK1 cluster nodes
   hosts: mongodb_cluster:control
   serial: 1
