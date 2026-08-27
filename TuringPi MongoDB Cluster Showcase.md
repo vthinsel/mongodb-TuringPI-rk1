@@ -2,21 +2,25 @@
 
 > *When you want to prove that ARM doesn't just mean your laptop battery lasts longer...*
 
-![TuringPi Header](https://via.placeholder.com/800x200/0066cc/white?text=TuringPi+MongoDB+Cluster+🚀)
+![TuringPi Header](./img/mongodb-turingpi2-rk1-picture3.png)
 
 ## What's This All About? 🤔
 
-Ever wondered what happens when you take four tiny ARM computers, stuff them into a mini-ITX sized board, and ask them to handle enterprise database workloads? Well, grab some coffee ☕ and let me tell you about our journey into the world of distributed ARM computing!
+Ever wondered what happens when you take four tiny ARM computers, stuff them into a mini-ITX sized board, and ask them to handle enterprise database workloads? Well, grab some coffee ☕ and step into the world of distributed ARM computing !
 
 We're building a **MongoDB replica set** on the **TuringPi 2** platform using **RK1 compute modules** - basically creating a data center that fits in your backpack. 
+
 ## Meet the TuringPi 2: The ARM Avengers' Headquarters 🦾
 
-The TuringPi 2 is like the Tony Stark of single-board computers - it takes regular compute modules and turns them into something extraordinary. Think of it as a **4-slot carrier board** that lets you cluster ARM-based compute modules together, including potentially NVIDIA Jetson modules.
+The TuringPi 2 is like the Tony Stark of single-board computers - it takes regular compute modules and turns them into something extraordinary. Think of it as a **4-slot carrier board** that lets you cluster ARM-based compute modules together, including NVIDIA Jetson modules if you fancy.
+
+The `img/` directory contains the hero artwork, the software-stack diagram, and
+the captured benchmark chart used throughout this article.
 
 
 ### Why TuringPi is Cool:
 
-- **Compact Design**: Mini-ITX form factor (same size as a small PC motherboard)
+- **Compact Design**: Mini-ITX form factor (same size as the smallest PC motherboard)
 - **Modular Architecture**: Hot-swappable compute modules
 - **Real Networking**: Gigabit Ethernet switching between nodes
 - **Storage**: NVMe dedicated to each module
@@ -36,18 +40,16 @@ The TuringPi 2 is like the Tony Stark of single-board computers - it takes regul
 
 ### RK1 Module Deep Dive 🔍
 
-Each RK1 is basically a **smartphone SoC** that decided to hit the gym:
+Each RK1 is basically a **smartphone SoC** on steroids. Here's what makes it tick:
 
 - **CPU**: ARMv8-A RK3588 (4x Cortex-A76 + 4x Cortex-A55)
 - **GPU**: Mali-G610 MP4 (yes, it can game!)
 - **NPU**: Built-in AI acceleration providing 6TOPS (we will come to this in a next chapter...)
-- **Memory**: 16GB LPDDR4
+- **Memory**: 16GB LPDDR4 (exists in 8/16/32 flavor)
 - **Storage**: 32G eMMC and NVMe support
 - **Form Factor**: 260-pin SO-DIMM connector (Nvidia Jetson Compatible)
 - **Networking**: 1x Gigabit Ethernet
-- **Power**: ~9W per module including NVME (40W total cluster!)
-
-![Hardware Setup](https://via.placeholder.com/600x400/ff6b35/white?text=TuringPi+Hardware+Assembly)
+- **Power**: ~9W per module including NVME (40W total cluster max!)
 
 ## The Software Stack: From Zero to Hero 🛠️
 
@@ -68,6 +70,8 @@ graph TD
     I --> L[Node Exporter]
 ```
 
+![Software Stack Overview](./img/stack.png)
+
 ### MongoDB Deployment Architecture:
 
 ```
@@ -83,7 +87,7 @@ graph TD
 │             │             │             │             │
 │ 16GB RAM    │ 16GB RAM    │ 16GB RAM    │ 16GB RAM    │
 │ 256GB NVMe  │ 256GB NVMe  │ 256GB NVMe  │ 256GB NVMe  │
-│ /data       │ /data       │ /data       │ /monitoring  │
+│ /data       │ /data       │ /data       │ /monitoring │
 └─────────────┴─────────────┴─────────────┴─────────────┘
                             │
                    ┌────────┴────────┐
@@ -114,7 +118,7 @@ IP addresses or DNS names when connecting from outside the cluster network.
 
 ## Performance: David vs Goliath 📊
 
-### Benchmark Results (YCSB):
+### Benchmark Results (PLGM & YCSB):
 
 #### 🔥 The ARM Crusher (50% Write Workload)
 
@@ -123,20 +127,20 @@ IP addresses or DNS names when connecting from outside the cluster network.
 - **Power Consumption**: 48W total cluster
 - **Performance/Watt**:   ops/sec/watt
 
-#### 🏃‍♂️ ARM Endurance Test (10% Write Workload)
+#### 🏃‍♂️ ARM Endurance Test (20% Write Workload)
 
-- **Throughput**:  ops/sec
+- **Throughput**:  6300 ops/sec
 - **Latency (95th percentile)**: &lt;XYZ 20ms
-- **Power Consumption**: 48W total cluster
+- **Power Consumption**: 36W total cluster
 - **Performance/Watt**:   ops/sec/watt
 
-![Performance Chart](https://via.placeholder.com/700x400/4caf50/white?text=Performance+Metrics+Chart)
+![Performance Chart](./img/RK1%20TuringPi%20MongoDB%20Cluster-1787778187002.png)
 
 ### Compared to Traditional x86:
 
 | Metric | TuringPi ARM | x86 Equivalent | ARM Advantage |
 | --- | --- | --- | --- |
-| **Power** | 50W | 900W+ | 📉 80% less |
+| **Power** | 40W | 900W+ | 📉 80% less |
 | **Cost** | $900 | $1800 | 💰 50% savings |
 | **Footprint** | Mini-ITX | 4x servers | 🏠 80% smaller |
 | **Cooling** | On-demand fans| Always On fans | 🔇 Silent |
@@ -158,8 +162,8 @@ IP addresses or DNS names when connecting from outside the cluster network.
 
 ```bash
 # Clone our automation repository
-git clone https://github.com/your-repo/turingpi-mongodb
-cd turingpi-mongodb
+git clone https://github.com/<your-org>/<your-repo>
+cd <your-repo>
 
 # Run on rk1-node4 (facility/control node): installs & validates Ansible, then sets up SSH keys
 ./setup_facility-node.sh
@@ -192,10 +196,7 @@ automatically into the `TuringPi` folder. Its source is
 `grafana/turingpi-mongodb-dashboard.json`; the playbook copies it to
 `/monitoring/grafana/provisioning/dashboards/` and provisions the Prometheus
 datasource at `http://prometheus:9090`. No manual dashboard import is needed.
-
-> **Warning:** Formatting `/dev/nvme0n1` is destructive when that device does
-> not already contain a filesystem. Verify the device on each node before the
-> first deployment and back up monitoring data before replacing the drive.
+Feel free to add or import any other dashboards from [Grafana](https://grafana.com/grafana/dashboards/?dataSource=nobl9agent%2Cprometheus%2Cvictorialogs-datasource)
 
 ### First YCSB Load Test
 
@@ -283,7 +284,7 @@ exposed before using this setup in production.
 
 ## ⏻ Stopping & Starting the Whole Platform
 
-Two playbooks manage the full lifecycle of the cluster, useful for power savings overnight or during travel with the rig:
+Two playbooks manage the full lifecycle of the cluster, useful for power savings overnight or just saving the planet:
 
 ```bash
 # Graceful stop: step down primary → stop mongod containers → stop monitoring
@@ -300,13 +301,13 @@ Power control goes through the TuringPi 2 BMC's REST API (`bmcd`), not the OS, s
 
 ```mermaid
 sequenceDiagram
-    participant Op as Operator (on rk1-node4)
+    participant Op as Ansible (on rk1-node4)
     participant BMC as TuringPi BMC
     participant Nodes as rk1-node1..3
     Op->>Nodes: rs.stepDown() + docker stop (mongo)
     Op->>Nodes: shutdown -h now
     Op->>BMC: POST power off (node1..3)
-    Note over BMC,Nodes: rk1-node1..3 powered off, BMC + rk1-node4 stay alive
+    Note over BMC,Nodes: rk1-node4 stays alive
     Op->>BMC: POST power on (node1..3)
     BMC->>Nodes: power restored, boot
     Op->>Nodes: wait for SSH, start containers
@@ -322,7 +323,7 @@ We've got a comprehensive monitoring setup running on `rk1-node4`:
 
 - **System Metrics**: CPU, Memory, Disk I/O, Network
 - **MongoDB Metrics**: Operations/sec, Connections, Replica Set Health, and WiredTiger cache usage
-- **Power Consumption**: Via IoT smart plug integration with metrics fetched from HomeAssistant
+- **Power Consumption**: Via IoT smart plug integration with metrics fetched from HomeAssistant (full configuration not covered here)
 - **Custom ARM Metrics**: Temperature, frequency scaling
 
 ### Dedicated Grafana Dashboard
@@ -358,8 +359,6 @@ To install or refresh the dashboard and monitoring stack:
 ansible-playbook --ask-vault-pass -i inventory.yml setup_monitoring.yml
 ```
 
-![Grafana Dashboard](https://via.placeholder.com/800x500/ff9800/white?text=Grafana+Dashboard+Screenshot)
-
 ## Real-World Performance Stories 📈
 
 ### Story 1: The Endurance Test
@@ -372,8 +371,7 @@ We ran our cluster for **72 hours straight** with mixed workloads:
 
 ### Story 2: The Scalability Surprise
 
-- **Linear scaling**: Performance increased predictably
-- **Memory efficiency**: 16GB proved more than sufficient
+- **Memory efficiency**: 16GB proved to be sufficient, but is workload dependent of course.
 - **Storage performance**: NVMe drives delivered consistent latency
 
 ### Story 3: The Failover Test
@@ -390,17 +388,17 @@ Deliberately powered off `rk1-node1` (primary):
 
 #### TuringPi ARM Cluster:
 
-- **Hardware**: $900
-- **Power** (3 years @ $0.06/kWh): $140
-- **Total**: $1,090
+- **Hardware**: $1620
+- **Power** (3 years @ $0.2/kWh): $180
+- **Total**: $1,800
 
 #### Equivalent x86 Setup:
 
-- **Hardware**: $1800
-- **Power** (3 years @ $0.6/kWh): $950
-- **Total**: $4,350
+- **Hardware**: $2500
+- **Power** (3 years @ $0.2/kWh): $3200
+- **Total**: $5,700
 
-**ARM Savings: $ (% cost reduction!)** 🎉
+**ARM Savings: 70% cost reduction** 🎉
 
 ## Lessons Learned &amp; Pro Tips 🎓
 
@@ -410,16 +408,15 @@ Deliberately powered off `rk1-node1` (primary):
 2. **Power Efficiency**: Game-changer for edge deployments
 3. **Ansible Automation**: Made deployment reproducible, idempotent and fast
 4. **Container Strategy**: Docker simplified MongoDB management - probably slightly better performance on bare metal.
-5. **Monitoring Stack**: Node Exporter + Prometheus + Grafana provided excellent visibility
+5. **Monitoring Stack**: Node Exporter + Prometheus + Grafana provided excellent visibility, and easy connection to external datasource (HomeAssistant for power)
 6. **Percona Load Generator for MongoDB (PLGM)** : Excellent load/stress test coming with a web UI, insights, and lots of stuff. Got easily recompiled for ARM from the go source from github.
-7. **YCSB**: Old load tessting application, quite complex to run on a recent ARM linux distro. Using a docker image image simplified solved this issue, while making results not directly comparable.
+7. **YCSB**: Old load testing application, quite complex to run on a recent ARM Linux distro. Using a container image simplified this considerably, while also making results less directly comparable to bare-metal runs.
 
 ### Gotchas We Hit:
 
 1. **ARM Docker Images**: Make sure you pull `arm64` variants
 2. **Memory Management**: Tune MongoDB for ARM's memory characteristics
 3. **NVMe Formatting**: XFS with specific mount options crucial for performance
-4. **Network Config**: TuringPi's internal switch needs proper setup
 
 ### Performance Optimizations That Mattered:
 
@@ -438,13 +435,32 @@ sysctl -w net.core.rmem_max=16777216
 sysctl -w net.core.wmem_max=16777216
 ```
 
+### Further Performance Optimizations Worth Testing
+
+- Benchmark `mongodb_wiredtiger_cache_size_gb` at `8`, `9`, and `10` on the
+  16 GB RK1 nodes. Mixed scan workloads often improve when Linux keeps more RAM
+  for page cache and exporter overhead.
+- A/B test `mongodb_wiredtiger_collection_compressor` between `zstd` and
+  `snappy`. The current `zstd` default is space-efficient, but `snappy` often
+  improves CPU-bound write throughput on ARM.
+- Consider pinning the `mongod` container to the RK3588 Cortex-A76 cores during
+  write-heavy benchmarks. The big.LITTLE topology can otherwise mix
+  latency-sensitive database threads with background tasks.
+- Publish two benchmark profiles instead of one: the current
+  `directConnection=true` primary-only path for peak throughput and a
+  replica-set-aware URI with stronger write concern to show the durability cost
+  of production-like settings.
+- Pin the monitoring containers away from `:latest` before long benchmark
+  campaigns so exporter behavior and Prometheus/Grafana feature changes do not
+  skew repeatability.
+
 ## Use Cases: Where This Shines ⭐
 
 ### Perfect For:
 
 - **Edge Computing**: Data centers in remote locations
 - **Development Clusters**: Cost-effective MongoDB testing
-- **IoT Data Collection**: High-efficiency data ingestion
+- **IoT Data Collection**: High-efficiency data ingestion with robustness built-in
 - **Educational Labs**: Teaching distributed systems
 - **Proof of Concepts**: Demonstrating ARM viability
 
@@ -459,7 +475,7 @@ sysctl -w net.core.wmem_max=16777216
 ### Phase 2 Enhancements:
 
 - [ ] **Kubernetes Integration**: Container orchestration layer
-- [ ] **Automatic Scaling**: Dynamic node addition/removal  
+- [ ] **Automatic Scaling**: Dynamic node addition/removal to play with NVIDIA modules if required
 - [ ] **ML Workloads**: TensorFlow Lite on ARM using the NPU embedded in the ARM core.
 - [ ] **Multi-Cluster**: Federation across TuringPi units
 - [ ] **Advanced Monitoring**: AI-powered performance analysis
@@ -472,12 +488,12 @@ sysctl -w net.core.wmem_max=16777216
 
 ## The Verdict: ARM Has Arrived! 🏆
 
-After days of testing, optimizing, and pushing this cluster to its limits (got few crash using the PLGM raw injector...), here's our honest assessment:
+After some days of testing, playing, optimizing, discussing, and pushing this cluster to its limits (including a few crashes with the PLGM raw injector), here's our honest assessment:
 
 ### The Good 👍:
 
-- **Performance**: Exceeded expectations for database workloads
-- **Efficiency**: Power consumption is revolutionary. Less that a light bulb (not talking LED, right)
+- **Performance**: Exceeded expectations for regular database workloads
+- **Efficiency**: Power consumption is revolutionary. Less than a traditional light bulb while still delivering a real replica set.
 - **Reliability**: Solid uptime and failover capabilities
 - **Cost**: Dramatically lower TCO than x86
 - **Fun Factor**: Building this was genuinely enjoyable!
@@ -497,26 +513,26 @@ After days of testing, optimizing, and pushing this cluster to its limits (got f
 Want to build your own TuringPi MongoDB cluster? Here's everything you need:
 
 ### Shopping List 🛒:
-
+Prices 
 ```markdown
-- 1x TuringPi 2 board (~$200)
-- 4x RK1 16GB modules (~$120 each)
-- 4x 256GB NVMe SSDs (~$30 each) 
+- 1x TuringPi 2 board ($280 )
+- 4x RK1 16GB modules (~$300 each)
+- 4x 400GB NVMe SSDs (~$30 each) 
 - 4x Heatsinks (~$10 each)
 - 1x ATX PSU (~$50)
 - Networking cables and case (~$50)
 
-Total: ~$900
+Total: ~1620$ (was half in 2023, but prices are rising due to global chip shortage)
 ```
 
 ### Quick Start Commands:
 
 ```bash
 # Clone our repository
-git clone https://github.com/your-username/turingpi-mongodb-cluster
+git clone https://github.com/<your-org>/<your-repo>
 
 # Run the setup on rk1-node4 (the facility node with Ansible and management tools)
-cd turingpi-mongodb-cluster
+cd <your-repo>
 cat README.md
 
 # Deploy in under 30 minutes
@@ -543,7 +559,10 @@ This project is **open source** and we'd love your contributions:
 
 ### Connect With Us:
 
-- **GitHub**: [turingpi-mongodb-cluster](https://github.com/your-repo)
+Replace the placeholders below with your final repository and social URLs before
+publishing screenshots or sharing the article externally.
+
+- **GitHub**: [turingpi-mongodb-cluster](https://github.com/<your-org>/<your-repo>)
 - **LinkedIn**: Share your results with #TuringPi #MongoDB #ARM
 - **Twitter**: Tweet your cluster pics with @turingpi
 - **Discord**: Join the TuringPi community server
@@ -560,8 +579,6 @@ So grab a TuringPi, fire up some RK1 modules, and join us in building the future
 
 ---
 
-*Built with ❤️ by ARM enthusiasts who believe that the best database clusters come in small, power-efficient packages.*
+*Built by ARM enthusiasts who believe that the best database clusters come in small, power-efficient packages.*
 
 **P.S.** - If you build this setup, we'd love to see photos! Tag us on social media and show off your ARM-powered MongoDB cluster. The geekier the better! 🤓
-
-![Footer Image](https://via.placeholder.com/800x100/333333/white?text=Happy+Clustering!+🚀)

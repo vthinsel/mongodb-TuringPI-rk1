@@ -17,7 +17,7 @@
     ycsb_record_count: 100000
     ycsb_operation_count: 100000
     ycsb_threads: 4
-    ycsb_max_execution_time: 300
+    ycsb_max_execution_time: 600
     ycsb_workload:
       operationcount: 100000
       fieldcount: 10

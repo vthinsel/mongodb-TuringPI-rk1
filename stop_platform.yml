@@ -40,7 +40,7 @@
       register: step_down
       failed_when: false
       changed_when: false
-      #no_log: true
+      no_log: true
 
 - name: 🍃 Stop MongoDB containers
   hosts: mongodb_cluster
