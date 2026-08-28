@@ -1,5 +1,10 @@
 # 🚀 Building an amazingly small Beast: MongoDB on TuringPi ARM Cluster
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+![Ansible](https://img.shields.io/badge/Ansible-automation-black.svg)
+![MongoDB](https://img.shields.io/badge/MongoDB-replica%20set-green.svg)
+![ARM64](https://img.shields.io/badge/Architecture-ARM64-red.svg)
+
 > *When you want to prove that ARM doesn't just mean your laptop battery lasts longer...*
 
 ![TuringPi Header](./img/mongodb-turingpi2-rk1-picture3.png)
