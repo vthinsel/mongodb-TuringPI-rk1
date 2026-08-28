@@ -7,18 +7,43 @@
   "panels": [
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "watt", "color": {"mode": "palette-classic"}}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 150},
+              {"color": "orange", "value": 250},
+              {"color": "red", "value": 350}
+            ]
+          },
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
       "id": 1,
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "sparkline": {"show": true, "lineColor": "#73BF69", "fillColor": "rgba(31, 120, 180, 0.2)"}
+      },
       "targets": [{"expr": "hass_sensor_power_w{entity=\"sensor.zbpvol01_power\"}", "legendFormat": "Cluster power", "refId": "A"}],
       "title": "Cluster Power",
-      "type": "timeseries"
+      "type": "gauge"
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
       "id": 2,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
       "targets": [{"expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\"}[5m])))", "legendFormat": "{{instance}}", "refId": "A"}],
@@ -28,7 +53,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "celsius"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
       "id": 3,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
       "targets": [{"expr": "node_hwmon_temp_celsius{job=\"node-exporter\",instance=~\"rk1-node[1-3]:9100\"}", "legendFormat": "{{instance}} {{chip}} {{sensor}}", "refId": "A"}],
@@ -37,9 +62,44 @@
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 60},
+              {"color": "orange", "value": 80},
+              {"color": "red", "value": 90}
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+      "id": 4,
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "sparkline": {"show": true, "lineColor": "#F2CC0C", "fillColor": "rgba(242, 204, 12, 0.2)"}
+      },
+      "targets": [{"expr": "100 * mongodb_ss_wt_cache_bytes_currently_in_the_cache / mongodb_ss_wt_cache_maximum_bytes_configured", "legendFormat": "{{instance}} cache used", "refId": "A"}],
+      "title": "WiredTiger Cache Used",
+      "type": "gauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
-      "id": 4,
+      "id": 5,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
       "targets": [
         {"expr": "sum by (instance) (rate(node_disk_read_bytes_total{job=\"node-exporter\",instance=~\"rk1-node[1-3]:9100\",device=~\"nvme.*\"}[5m]))", "legendFormat": "{{instance}} read", "refId": "A"},
@@ -52,7 +112,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
-      "id": 5,
+      "id": 6,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
       "targets": [
         {"expr": "sum(rate(mongodb_ss_opcounters{legacy_op_type=\"insert\"}[5m]))", "legendFormat": "Insert", "refId": "A"},
@@ -65,58 +125,134 @@
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "bytes", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 8000000000}, {"color": "red", "value": 9500000000}]}}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
-      "id": 6,
-      "options": {"orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showThresholdLabels": false, "showThresholdMarkers": true},
-      "targets": [{"expr": "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "legendFormat": "{{instance}} used", "refId": "A"}],
-      "title": "WiredTiger Cache Used",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 85},
+              {"color": "yellow", "value": 90},
+              {"color": "green", "value": 95}
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 16},
+      "id": 7,
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "sparkline": {"show": true, "lineColor": "#7EB26D", "fillColor": "rgba(126, 178, 109, 0.2)"}
+      },
+      "targets": [{"expr": "100 * mongodb_ss_wt_cache_bytes_currently_in_the_cache / clamp_min(mongodb_ss_wt_cache_maximum_bytes_configured, 1)", "legendFormat": "{{instance}}", "refId": "A"}],
+      "title": "WiredTiger Cache Fill %",
       "type": "gauge"
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
-      "id": 7,
+      "gridPos": {"h": 8, "w": 9, "x": 6, "y": 16},
+      "id": 8,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
       "targets": [
         {"expr": "mongodb_ss_wt_cache_maximum_bytes_configured", "legendFormat": "{{instance}} max", "refId": "A"},
-        {"expr": "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "legendFormat": "{{instance}} used", "refId": "B"}
+        {"expr": "mongodb_ss_wt_cache_bytes_currently_in_the_cache", "legendFormat": "{{instance}} used", "refId": "B"},
+        {"expr": "rate(mongodb_ss_wt_cache_bytes_read_into_cache[5m])", "legendFormat": "{{instance}} read", "refId": "C"},
+        {"expr": "rate(mongodb_ss_wt_cache_bytes_written_from_cache[5m])", "legendFormat": "{{instance}} written", "refId": "D"}
       ],
-      "title": "WiredTiger Cache Size",
+      "title": "WiredTiger Cache Tuning Signals",
       "type": "timeseries"
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
-      "id": 8,
+      "fieldConfig": {"defaults": {"unit": "decbytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 9, "x": 15, "y": 16},
+      "id": 9,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
-      "targets": [{"expr": "100 * mongodb_ss_wt_cache_bytes_currently_in_the_cache / mongodb_ss_wt_cache_maximum_bytes_configured", "legendFormat": "{{instance}}", "refId": "A"}],
-      "title": "WiredTiger Cache Utilization",
+      "targets": [
+        {"expr": "rate(mongodb_ss_wt_cache_bytes_read_into_cache[5m])", "legendFormat": "{{instance}} bytes read/sec", "refId": "A"},
+        {"expr": "rate(mongodb_ss_wt_cache_bytes_written_from_cache[5m])", "legendFormat": "{{instance}} bytes written/sec", "refId": "B"},
+        {"expr": "100 * mongodb_ss_wt_cache_bytes_currently_in_the_cache / clamp_min(mongodb_ss_wt_cache_maximum_bytes_configured, 1)", "legendFormat": "{{instance}} cache fill %", "refId": "C"}
+      ],
+      "title": "WiredTiger Read/Write Pressure",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "orange", "value": 3},
+              {"color": "red", "value": 5}
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 10,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"},
+        "tooltip": {"mode": "multi"},
+        "sparkline": {"show": true, "lineColor": "#EAB839", "fillColor": "rgba(234, 184, 57, 0.2)"}
+      },
+      "targets": [
+        {"expr": "mongodb_ss_flowControl_isLaggedTimeMicros / clamp_min(mongodb_ss_flowControl_isLaggedCount, 1) / 1000000", "legendFormat": "{{instance}} lag (s)", "refId": "A"},
+        {"expr": "mongodb_ss_flowControl_isLagged", "legendFormat": "{{instance}} lag flag", "refId": "B"}
+      ],
+      "title": "Replica Set Lag (s)",
       "type": "timeseries"
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 24},
-      "id": 9,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 11,
       "options": {"legend": {"displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
       "targets": [
-        {"expr": "mongodb_ss_connections{conn_type=\"current\"}", "legendFormat": "{{node_name}} connections", "refId": "A"},
-        {"expr": "count by (node_name, rs_state) (mongodb_ss_repl_setVersion)", "legendFormat": "{{node_name}} state {{rs_state}}", "refId": "B"}
+        {"expr": "mongodb_ss_connections{conn_type=\"current\"}", "legendFormat": "{{instance}} connections", "refId": "A"},
+        {"expr": "count by (instance, rs_state) (mongodb_ss_repl_setVersion)", "legendFormat": "{{instance}} state {{rs_state}}", "refId": "B"}
       ],
-      "title": "Connections and Replica Set State (1=Primary, 2=Secondary)",
+      "title": "Replica Set State & Connections",
       "type": "timeseries"
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
-      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 24},
-      "id": 10,
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 32},
+      "id": 12,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
       "targets": [{"expr": "100 * (1 - node_memory_MemAvailable_bytes{job=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"node-exporter\"})", "legendFormat": "{{instance}} memory used", "refId": "A"}],
       "title": "Node Memory Pressure",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 32},
+      "id": 13,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "mongodb_ss_opLatencies_latency / clamp_min(mongodb_ss_opLatencies_ops, 1) / 1000", "legendFormat": "{{instance}} {{op_type}} avg latency (ms)", "refId": "A"}
+      ],
+      "title": "Operation Latency Behavior",
       "type": "timeseries"
     }
   ],
@@ -127,5 +263,5 @@
   "timepicker": {"refresh_intervals": ["5s", "15s", "30s", "1m", "5m", "15m"], "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "7d"]},
   "title": "TuringPi MongoDB Cluster",
   "uid": "turingpi-mongodb",
-  "version": 1
+  "version": 2
 }
