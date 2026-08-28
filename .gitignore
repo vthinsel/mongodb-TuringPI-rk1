@@ -8,7 +8,7 @@ vault_password_file
 *.secret.yml
 *.secrets.yml
 group_vars/**/secrets.yml
-group_vars/**/vault.yml
+group_vars/all/*vault*
 group_vars/**/vault-password-file
 
 # Keep encrypted Ansible Vault data trackable; ignore plaintext vault copies.
