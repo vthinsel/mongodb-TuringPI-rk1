@@ -578,7 +578,7 @@ Total: ~1620$ (was half in 2023, but prices are rising due to global chip shorta
 
 ```bash
 # Clone our repository
-git clone https://github.com/<your-org>/<your-repo>
+gh repo clone vthinsel/mongodb-TuringPI-rk1
 
 # Run the setup on rk1-node4 (the facility node with Ansible and management tools)
 cd <your-repo>
@@ -608,13 +608,8 @@ This project is **open source** and we'd love your contributions:
 
 ### Connect With Us:
 
-Replace the placeholders below with your final repository and social URLs before
-publishing screenshots or sharing the article externally.
-
-- **GitHub**: [turingpi-mongodb-cluster](https://github.com/<your-org>/<your-repo>)
+- **GitHub**: [turingpi-mongodb-cluster](https://github.com/vthinsel/mongodb-TuringPI-rk1)
 - **LinkedIn**: Share your results with #TuringPi #MongoDB #ARM
-- **Twitter**: Tweet your cluster pics with @turingpi
-- **Discord**: Join the TuringPi community server
 
 ---
 
