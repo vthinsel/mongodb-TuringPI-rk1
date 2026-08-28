@@ -113,19 +113,19 @@ IP addresses or DNS names when connecting from outside the cluster network.
 
 #### 🔥 The ARM Crusher (50% Write Workload)
 
-- **Throughput**:  ops/sec
-- **Latency (95th percentile)**: &lt;XYZ ms
-- **Power Consumption**: 48W total cluster
-- **Performance/Watt**:   ops/sec/watt
+- **Throughput**:  6100 ops/sec
+- **Avg Write Latency **: &lt;10 ms
+- **Power Consumption**: 42W total cluster
+- **Performance/Watt**:   145 ops/sec/watt
 
-#### 🏃‍♂️ ARM Endurance Test (20% Write Workload)
+#### 🏃‍♂️ ARM Endurance Test (25% Write Workload)
 
-- **Throughput**:  6300 ops/sec
-- **Latency (95th percentile)**: &lt;XYZ 20ms
+- **Throughput**:  6700 ops/sec
+- **Avg Read Latency **: &lt;1 ms
 - **Power Consumption**: 36W total cluster
-- **Performance/Watt**:   ops/sec/watt
+- **Performance/Watt**:   180 ops/sec/watt
 
-![Performance Chart](./img/RK1%20TuringPi%20MongoDB%20Cluster-1787778187002.png)
+![Performance Chart](./img/Grafana-TuringPi-MongoDB-Cluster.png)
 
 ### Compared to Traditional x86:
 
