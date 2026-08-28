@@ -283,9 +283,6 @@ Warning: Queries path 'resources/queries' not found. Using embedded default.json
  00:11   |     4,831 |   2,632 |   1,630 |       0 |     387 |     182 |      0 |     0
 
 ```
-Result in grafana:
-![grafana](./img/Grafana-TuringPi-MongoDB-Cluster.png)
-
 ### Updating the RK1 Cluster
 
 Use `update_rk1cluster.yml` to refresh the OS and container images on all cluster nodes, including the control node `rk1-node4`. The playbook runs one host at a time (`serial: 1`) to avoid rolling reboots or package conflicts during the upgrade window.
