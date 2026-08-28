@@ -7,8 +7,6 @@
 
 > *When you want to prove that ARM doesn't just mean your laptop battery lasts longer...*
 
-![TuringPi Header](./img/mongodb-turingpi2-rk1-picture3.png)
-
 ## What's This All About? 🤔
 
 Ever wondered what happens when you take four tiny ARM computers, stuff them into a mini-ITX sized board, and ask them to handle enterprise database workloads? Well, grab some coffee ☕ and step into the world of distributed ARM computing !
@@ -30,7 +28,7 @@ the captured benchmark chart used throughout this article.
 - **Real Networking**: Gigabit Ethernet switching between nodes
 - **Storage**: NVMe dedicated to each module
 - **Enterprise Features**: BMC (Baseboard Management Controller) for remote management
-![Compact platform](./img/turingpi2-rk1.jpg)
+![Compact platform](./img/turingpi2-rk1-vignette.jpg)
 
 ## The Hardware Squad 💪
 
