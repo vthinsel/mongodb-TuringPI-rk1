@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant Op as Ansible (on rk1-node4)
+    participant BMC as TuringPi BMC
+    participant Nodes as rk1-node1..3
+    Op->>Nodes: rs.stepDown() + docker stop (mongo)
+    Op->>Nodes: shutdown -h now
+    Op->>BMC: POST power off (node1..3)
+    Note over BMC,Nodes: rk1-node4 stays alive
+    Op->>BMC: POST power on (node1..3)
+    BMC->>Nodes: power restored, boot
+    Op->>Nodes: wait for SSH, start containers
+    Op->>Nodes: wait for PRIMARY election
+    Op->>Nodes: start monitoring stack
