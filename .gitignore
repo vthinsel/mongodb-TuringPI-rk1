@@ -39,3 +39,5 @@ ansible.log
 .vscode/
 *.swp
 *.swo
+CLAUDE.md
+.github/

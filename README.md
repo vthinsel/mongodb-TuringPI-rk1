@@ -18,7 +18,7 @@ We're building a **MongoDB replica set** on the **TuringPi 2** platform using **
 The TuringPi 2 is like the Tony Stark of single-board computers - it takes regular compute modules and turns them into something extraordinary. Think of it as a **4-slot carrier board** that lets you cluster ARM-based compute modules together, including NVIDIA Jetson modules if you fancy.
 
 The `img/` directory contains the hero artwork, the software-stack diagram, and
-the captured benchmark chart used throughout this article.
+the captured benchmark chart used throughout this article. Feel free to check it out !
 
 
 ### Why TuringPi is Cool:
@@ -151,8 +151,7 @@ IP addresses or DNS names when connecting from outside the cluster network.
 
 ```bash
 # Clone our automation repository
-git clone https://github.com/<your-org>/<your-repo>
-cd <your-repo>
+gh repo clone vthinsel/mongodb-TuringPI-rk1
 
 # Run on rk1-node4 (facility/control node): installs & validates Ansible, then sets up SSH keys
 ./setup_facility-node.sh
