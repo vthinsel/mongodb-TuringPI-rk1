@@ -42,6 +42,8 @@ the captured benchmark chart used throughout this article. Feel free to check it
 | **Heatsinks** | 4x | Active cooling | Chill vibes 🧊 |
 | **24-pin PSU** | 1x | Standard ATX power | The juice ⚡ |
 
+
+
 ### RK1 Module Deep Dive 🔍
 
 Each RK1 is basically a **smartphone SoC** on steroids. Here's what makes it tick:
@@ -459,12 +461,31 @@ Deliberately powered off `rk1-node1` (primary):
 1. **ARM Docker Images**: Make sure you pull `arm64` variants
 2. **Memory Management**: Tune MongoDB for ARM's memory characteristics
 3. **NVMe Formatting**: XFS with specific mount options crucial for performance
+4. **Transparent Huge Pages**: Since MongoDB 8, THP is recommended. The issue is that the RK1 default kernel is not built with THP. Recompiling the kernel is mandatory and quite time consuming....
 
 ### Performance Optimizations That Mattered:
 
+In order to enable **Transparent Huge Pages** It is necessary to recompile the kernel with the right option. I hadn't compiled a kernel for the last 20 years .... it is still the same mess nad menuconfig is still there 😆.
+The playbooks do not install automatically the custom kernel with thp1, it is up to you to install it or not. Installation is done using the two .deb files provided and installing them with
 ```bash
-# Disable transparent huge pages (ARM specific, made persistent via a systemd unit)
-echo never > /sys/kernel/mm/transparent_hugepage/enabled
+sudo dpkg -i \
+    linux-headers-5.10.160-rockchip-thp1_5.10.160-37_arm64.deb \
+    linux-image-5.10.160-rockchip-thp1_5.10.160-37_arm64.deb
+```
+Enjoy THP on RK1 !
+
+```bash
+# MongoDB 8 on ARM64: enable THP and upgraded TCMalloc per-CPU caches
+ansible-playbook --ask-vault-pass -i inventory.yml thp_enable.yml
+
+# Optional A/B comparison: disable THP and restart MongoDB one node at a time
+ansible-playbook --ask-vault-pass -i inventory.yml thp_disable.yml
+
+# MongoDB 8 THP values: always, defer+madvise, 0, and 1
+cat /sys/kernel/mm/transparent_hugepage/enabled
+cat /sys/kernel/mm/transparent_hugepage/defrag
+cat /sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none
+cat /proc/sys/vm/overcommit_memory
 
 # MongoDB nodes: /dev/nvme0n1 is mounted at /data by deploy_mongodb_cluster.yml
 mount -o noatime,nodiratime /dev/nvme0n1 /data
@@ -475,6 +496,27 @@ mount -o noatime,nodiratime,logbufs=8 /dev/nvme0n1 /monitoring
 # Tune network buffers for ARM
 sysctl -w net.core.rmem_max=16777216
 sysctl -w net.core.wmem_max=16777216
+```
+
+MongoDB 8 uses upgraded TCMalloc on supported ARM64 Linux systems. The
+deployment enables THP before Docker starts MongoDB, sets the required
+`always`, `defer+madvise`, `max_ptes_none=0`, and `vm.overcommit_memory=1`
+values, and sets `GLIBC_TUNABLES=glibc.pthread.rseq=0` in the container so
+TCMalloc can use per-CPU caches. The `thp_enable.yml` and `thp_disable.yml`
+playbooks provide a serial, restart-and-report A/B comparison for benchmarks.
+Run the enable playbook again after comparison benchmarks to restore the
+MongoDB 8-recommended configuration.
+
+The RK1 kernel must expose `/sys/kernel/mm/transparent_hugepage` (or the
+Red Hat equivalent) with `CONFIG_TRANSPARENT_HUGEPAGE` enabled. The playbooks
+cannot enable THP when the kernel omits that interface; install or boot a
+kernel built with that option first. Check the active kernel with:
+
+```bash
+uname -r
+zgrep CONFIG_TRANSPARENT_HUGEPAGE /proc/config.gz 2>/dev/null || \
+  grep CONFIG_TRANSPARENT_HUGEPAGE "/boot/config-$(uname -r)"
+ls -ld /sys/kernel/mm/*transparent_hugepage
 ```
 
 ### Further Performance Optimizations Worth Testing

@@ -1,0 +1,64 @@
+---
+- name: Disable Transparent Huge Pages for comparison benchmarks
+  hosts: mongodb_cluster
+  become: yes
+  serial: 1
+
+  tasks:
+    - name: Stop and disable the MongoDB 8 THP service
+      systemd:
+        name: enable-transparent-huge-pages.service
+        daemon_reload: yes
+        enabled: no
+        state: stopped
+      failed_when: false
+
+    - name: Install the THP disable service
+      copy:
+        dest: /etc/systemd/system/disable-thp.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Disable Transparent Huge Pages (THP) for comparison benchmarks
+          DefaultDependencies=no
+          After=sysinit.target local-fs.target
+          Before=basic.target docker.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/bin/sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled && echo never > /sys/kernel/mm/transparent_hugepage/defrag'
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=basic.target
+
+    - name: Apply and start the THP disable service
+      systemd:
+        name: disable-thp.service
+        daemon_reload: yes
+        enabled: yes
+        state: restarted
+
+    - name: Restart MongoDB after changing THP
+      community.docker.docker_container:
+        name: mongodb
+        state: started
+        restart: yes
+
+    - name: Wait for MongoDB after restart
+      wait_for:
+        port: 27017
+        delay: 5
+        timeout: 60
+
+    - name: Display the active THP settings
+      shell: |
+        printf 'enabled='; cat /sys/kernel/mm/transparent_hugepage/enabled
+        printf 'defrag='; cat /sys/kernel/mm/transparent_hugepage/defrag
+        printf 'overcommit_memory='; cat /proc/sys/vm/overcommit_memory
+      register: thp_settings
+      changed_when: false
+
+    - name: Report the active THP settings
+      debug:
+        var: thp_settings.stdout_lines

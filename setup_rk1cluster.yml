@@ -69,6 +69,7 @@
           - iftop
           - nmap
           - tcpdump
+          - python-is-python3
         state: present
 
     - name: Check if reboot is required

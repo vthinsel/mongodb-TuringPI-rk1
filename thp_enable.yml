@@ -1,0 +1,121 @@
+---
+- name: Enable MongoDB 8 Transparent Huge Pages
+  hosts: mongodb_cluster
+  become: yes
+  serial: 1
+
+  tasks:
+    - name: Remove the THP disable service
+      file:
+        path: /etc/systemd/system/disable-thp.service
+        state: absent
+
+    - name: Locate the kernel THP interface
+      shell: |
+        if [ -d /sys/kernel/mm/transparent_hugepage ]; then
+          echo /sys/kernel/mm/transparent_hugepage
+        elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
+          echo /sys/kernel/mm/redhat_transparent_hugepage
+        fi
+      register: thp_root
+      changed_when: false
+
+    - name: Require kernel THP support
+      fail:
+        msg: >-
+          The kernel on {{ inventory_hostname }} does not expose a THP sysfs
+          interface. MongoDB 8 requires THP on supported ARM64 systems. Install
+          or boot an RK1 kernel with CONFIG_TRANSPARENT_HUGEPAGE enabled, then
+          rerun this playbook.
+      when: thp_root.stdout | trim == ''
+
+    - name: Install the MongoDB 8 THP service
+      copy:
+        dest: /etc/systemd/system/enable-transparent-huge-pages.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Enable Transparent Huge Pages (THP) for MongoDB 8
+          DefaultDependencies=no
+          After=sysinit.target local-fs.target
+          Before=basic.target docker.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/mongodb-enable-thp
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=basic.target
+
+    - name: Install the MongoDB 8 THP configuration script
+      copy:
+        dest: /usr/local/sbin/mongodb-enable-thp
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          set -eu
+
+          if [ -d /sys/kernel/mm/transparent_hugepage ]; then
+            thp_root=/sys/kernel/mm/transparent_hugepage
+          elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
+            thp_root=/sys/kernel/mm/redhat_transparent_hugepage
+          else
+            echo 'THP sysfs interface is missing; kernel support is required.' >&2
+            exit 1
+          fi
+
+          printf '%s\n' always > "$thp_root/enabled"
+
+          if ! printf '%s\n' defer+madvise > "$thp_root/defrag"; then
+            printf '%s\n' madvise > "$thp_root/defrag"
+          fi
+
+          if [ -w "$thp_root/khugepaged/max_ptes_none" ]; then
+            printf '%s\n' 0 > "$thp_root/khugepaged/max_ptes_none"
+          fi
+
+          printf '%s\n' 1 > /proc/sys/vm/overcommit_memory
+
+    - name: Apply and start the THP enable service
+      systemd:
+        name: enable-transparent-huge-pages.service
+        daemon_reload: yes
+        enabled: yes
+        state: restarted
+
+    - name: Restart MongoDB after changing THP
+      community.docker.docker_container:
+        name: mongodb
+        state: started
+        restart: yes
+
+    - name: Wait for MongoDB after restart
+      wait_for:
+        port: 27017
+        delay: 5
+        timeout: 60
+
+    - name: Display the active THP settings
+      shell: |
+        if [ -d /sys/kernel/mm/transparent_hugepage ]; then
+          thp_root=/sys/kernel/mm/transparent_hugepage
+        elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
+          thp_root=/sys/kernel/mm/redhat_transparent_hugepage
+        else
+          echo 'THP sysfs interface is missing'; exit 1
+        fi
+        printf 'enabled='; cat "$thp_root/enabled"
+        printf 'defrag='; cat "$thp_root/defrag"
+        if [ -r "$thp_root/khugepaged/max_ptes_none" ]; then
+          printf 'max_ptes_none='; cat "$thp_root/khugepaged/max_ptes_none"
+        else
+          echo 'max_ptes_none=unsupported-by-kernel'
+        fi
+        printf 'overcommit_memory='; cat /proc/sys/vm/overcommit_memory
+      register: thp_settings
+      changed_when: false
+
+    - name: Report the active THP settings
+      debug:
+        var: thp_settings.stdout_lines

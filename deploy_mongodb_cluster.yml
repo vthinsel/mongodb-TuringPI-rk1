@@ -10,6 +10,7 @@
     mongodb_storage_mount: "/data"
     mongodb_wiredtiger_cache_size_gb: 6
     mongodb_wiredtiger_collection_compressor: "zstd"
+    mongodb_glibc_tunables: "glibc.pthread.rseq=0"
     
   tasks:
     - name: 🚀 Starting MongoDB deployment on TuringPi ARM cluster
@@ -17,27 +18,87 @@
         msg: "Deploying MongoDB to {{ inventory_hostname }}"
         
     # OS Optimization Tasks
-    # NOTE: /etc/rc.local is not present/enabled by default on Ubuntu 22.04, so a
-    # systemd unit is used instead to guarantee THP stays disabled across reboots.
-    - name: 📊 Optimize OS - Disable Transparent Huge Pages (persistent via systemd)
+    # MongoDB 8's upgraded TCMalloc requires THP and per-CPU caches on ARM64.
+    - name: 📊 Optimize OS - Locate the kernel THP interface
+      shell: |
+        if [ -d /sys/kernel/mm/transparent_hugepage ]; then
+          echo /sys/kernel/mm/transparent_hugepage
+        elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
+          echo /sys/kernel/mm/redhat_transparent_hugepage
+        fi
+      register: thp_root
+      changed_when: false
+
+    - name: 📊 Optimize OS - Require kernel THP support
+      fail:
+        msg: >-
+          The kernel on {{ inventory_hostname }} does not expose a THP sysfs
+          interface. MongoDB 8 requires THP on supported ARM64 systems. Install
+          or boot an RK1 kernel with CONFIG_TRANSPARENT_HUGEPAGE enabled, then
+          rerun this playbook.
+      when: thp_root.stdout | trim == ''
+
+    - name: 📊 Optimize OS - Stop obsolete THP disable service
+      systemd:
+        name: disable-thp.service
+        daemon_reload: yes
+        enabled: no
+        state: stopped
+      failed_when: false
+
+    - name: 📊 Optimize OS - Remove obsolete THP disable service
+      file:
+        path: /etc/systemd/system/disable-thp.service
+        state: absent
+
+    - name: 📊 Optimize OS - Enable Transparent Huge Pages for MongoDB 8
       copy:
-        dest: /etc/systemd/system/disable-thp.service
+        dest: /etc/systemd/system/enable-transparent-huge-pages.service
         mode: '0644'
         content: |
           [Unit]
-          Description=Disable Transparent Huge Pages (THP) for MongoDB
+          Description=Enable Transparent Huge Pages (THP) for MongoDB 8
           DefaultDependencies=no
           After=sysinit.target local-fs.target
           Before=basic.target docker.service
 
           [Service]
           Type=oneshot
-          ExecStart=/bin/sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled; echo never > /sys/kernel/mm/transparent_hugepage/defrag'
+          ExecStart=/usr/local/sbin/mongodb-enable-thp
           RemainAfterExit=yes
 
           [Install]
           WantedBy=basic.target
       notify: enable_thp_service
+
+    - name: 📊 Optimize OS - Install MongoDB 8 THP configuration script
+      copy:
+        dest: /usr/local/sbin/mongodb-enable-thp
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          set -eu
+
+          if [ -d /sys/kernel/mm/transparent_hugepage ]; then
+            thp_root=/sys/kernel/mm/transparent_hugepage
+          elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
+            thp_root=/sys/kernel/mm/redhat_transparent_hugepage
+          else
+            echo 'THP sysfs interface is missing; kernel support is required.' >&2
+            exit 1
+          fi
+
+          printf '%s\n' always > "$thp_root/enabled"
+
+          if ! printf '%s\n' defer+madvise > "$thp_root/defrag"; then
+            printf '%s\n' madvise > "$thp_root/defrag"
+          fi
+
+          if [ -w "$thp_root/khugepaged/max_ptes_none" ]; then
+            printf '%s\n' 0 > "$thp_root/khugepaged/max_ptes_none"
+          fi
+
+          printf '%s\n' 1 > /proc/sys/vm/overcommit_memory
 
     - name: 📊 Optimize OS - Set CPU governor to performance (RK3588 big.LITTLE cores)
       copy:
@@ -257,6 +318,7 @@
         env:
           MONGO_INITDB_ROOT_USERNAME: "{{ vault_mongodb_admin_user }}"
           MONGO_INITDB_ROOT_PASSWORD: "{{ vault_mongodb_admin_password }}"
+          GLIBC_TUNABLES: "{{ mongodb_glibc_tunables }}"
         command: >
           mongod 
           --replSet {{ replica_set_name }}
@@ -279,12 +341,16 @@
         timeout: 60
         
   handlers:
+    - name: reload_systemd
+      systemd:
+        daemon_reload: yes
+
     - name: enable_thp_service
       systemd:
-        name: disable-thp.service
+        name: enable-transparent-huge-pages.service
         daemon_reload: yes
         enabled: yes
-        state: started
+        state: restarted
 
     - name: enable_performance_governor
       systemd:
