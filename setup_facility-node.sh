@@ -15,7 +15,8 @@ sudo apt install -y \
     python-is-python3 \
     python3-pip \
     python3-pymongo \
-    python3-venv
+    python3-venv \
+    gnuplot
 ansible-galaxy collection install -r requirements.yml
 
 # Create convenient, repeatable commands for Python data-injection scripts and

@@ -42,40 +42,11 @@
 
           [Service]
           Type=oneshot
-          ExecStart=/usr/local/sbin/mongodb-enable-thp
+          ExecStart=/bin/sh -c 'echo always | tee /sys/kernel/mm/transparent_hugepage/enabled > /dev/null && echo defer+madvise | tee /sys/kernel/mm/transparent_hugepage/defrag > /dev/null && echo 0 | tee /sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none > /dev/null && echo 1 | tee /proc/sys/vm/overcommit_memory > /dev/null'
           RemainAfterExit=yes
 
           [Install]
           WantedBy=basic.target
-
-    - name: Install the MongoDB 8 THP configuration script
-      copy:
-        dest: /usr/local/sbin/mongodb-enable-thp
-        mode: '0755'
-        content: |
-          #!/bin/sh
-          set -eu
-
-          if [ -d /sys/kernel/mm/transparent_hugepage ]; then
-            thp_root=/sys/kernel/mm/transparent_hugepage
-          elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
-            thp_root=/sys/kernel/mm/redhat_transparent_hugepage
-          else
-            echo 'THP sysfs interface is missing; kernel support is required.' >&2
-            exit 1
-          fi
-
-          printf '%s\n' always > "$thp_root/enabled"
-
-          if ! printf '%s\n' defer+madvise > "$thp_root/defrag"; then
-            printf '%s\n' madvise > "$thp_root/defrag"
-          fi
-
-          if [ -w "$thp_root/khugepaged/max_ptes_none" ]; then
-            printf '%s\n' 0 > "$thp_root/khugepaged/max_ptes_none"
-          fi
-
-          printf '%s\n' 1 > /proc/sys/vm/overcommit_memory
 
     - name: Apply and start the THP enable service
       systemd:

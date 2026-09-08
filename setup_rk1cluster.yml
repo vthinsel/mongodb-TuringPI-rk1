@@ -15,6 +15,9 @@
       - { name: rk1-node4, ip: "{{ hostvars['rk1-node4'].ansible_host | default('192.168.2.204') }}" }
     resolv_dns: "{{ dns_server }}"
     domain_dns: "{{ dns_domain }}"
+    kernel_package_dir: "{{ playbook_dir }}"
+    kernel_image_package: linux-image-5.10.160-rockchip-thp1_5.10.160-37_arm64.deb
+    kernel_headers_package: linux-headers-5.10.160-rockchip-thp1_5.10.160-37_arm64.deb
 
   tasks:
     - name: Ensure /etc/hosts contains cluster entries
@@ -54,6 +57,31 @@
       apt:
         update_cache: yes
         cache_valid_time: 3600
+
+    - name: Copy custom kernel packages
+      copy:
+        src: "{{ kernel_package_dir }}/{{ item }}"
+        dest: "/tmp/{{ item }}"
+        mode: '0644'
+      loop:
+        - "{{ kernel_headers_package }}"
+        - "{{ kernel_image_package }}"
+
+    - name: Install custom kernel headers
+      apt:
+        deb: "/tmp/{{ kernel_headers_package }}"
+
+    - name: Install custom kernel image
+      apt:
+        deb: "/tmp/{{ kernel_image_package }}"
+
+    - name: Hold custom kernel packages
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - linux-headers-5.10.160-rockchip-thp1
+        - linux-image-5.10.160-rockchip-thp1
 
     - name: Upgrade all packages (dist-upgrade)
       apt:

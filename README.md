@@ -198,7 +198,7 @@ Feel free to add or import any other dashboards from [Grafana](https://grafana.c
 `rk1-node4` against the primary, `rk1-node1`, using an unauthenticated direct
 connection. It first loads the YCSB dataset, then runs a common mixed profile:
 The playbook bypasses the image's incompatible bundled init wrapper and invokes
-the native ARM64 `/go-ycsb` binary directly.
+the native ARM64 `/go-ycsb` binary directly. Note that the results can't be directly compared with other ycsb release, but can be used to compare different settings such as THP on/off, zippy Vs std, different wiredtiger cache size, etc.
 
 - 50% reads
 - 30% updates
@@ -216,7 +216,7 @@ ansible-playbook --ask-vault-pass -i inventory.yml ycsb_load_test.yml \
 ```
 
 This test is intended only for isolated, non-production use. The confirmation
-flag is required, and the direct connection keeps operations on the primary.
+flag is required, and the direct connection keeps operations on the primary. This quick and simple test doesn't hit memory limits, thus wiredtiger settings don't come into the game as there is no pressure, we are in-memory workload scenario.
 
 ### Six-Hour YCSB Endurance Test
 
@@ -454,7 +454,7 @@ Deliberately powered off `rk1-node1` (primary):
 4. **Container Strategy**: Docker simplified MongoDB management - probably slightly better performance on bare metal.
 5. **Monitoring Stack**: Node Exporter + Prometheus + Grafana provided excellent visibility, and easy connection to external datasource (HomeAssistant for power)
 6. **Percona Load Generator for MongoDB (PLGM)** : Excellent load/stress test coming with a web UI, insights, and lots of stuff. Got easily recompiled for ARM from the go source from github.
-7. **YCSB**: Old load testing application, quite complex to run on a recent ARM Linux distro. Using a container image simplified this considerably, while also making results less directly comparable to bare-metal runs.
+7. **YCSB**: Old load testing application, quite complex to run on a recent ARM Linux distro. Using a container image simplified this considerably, while also making results less directly comparable to existing benchmarks.
 
 ### Gotchas We Hit:
 
@@ -465,14 +465,12 @@ Deliberately powered off `rk1-node1` (primary):
 
 ### Performance Optimizations That Mattered:
 
-In order to enable **Transparent Huge Pages** It is necessary to recompile the kernel with the right option. I hadn't compiled a kernel for the last 20 years .... it is still the same mess nad menuconfig is still there 😆.
-The playbooks do not install automatically the custom kernel with thp1, it is up to you to install it or not. Installation is done using the two .deb files provided and installing them with
-```bash
-sudo dpkg -i \
-    linux-headers-5.10.160-rockchip-thp1_5.10.160-37_arm64.deb \
-    linux-image-5.10.160-rockchip-thp1_5.10.160-37_arm64.deb
-```
-Enjoy THP on RK1 !
+In order to enable **Transparent Huge Pages** It is necessary to recompile the kernel with the right option. I hadn't compiled a kernel for the last 20 years .... it is still the same mess and menuconfig is still there 😆.
+`setup_rk1cluster.yml` installs the two custom kernel packages from the repository
+root and holds them so the package upgrade cannot replace them. Both `.deb` files
+must be present beside the playbook before running the setup.
+
+Enjoy THP on RK1!
 
 ```bash
 # MongoDB 8 on ARM64: enable THP and upgraded TCMalloc per-CPU caches
@@ -507,8 +505,7 @@ playbooks provide a serial, restart-and-report A/B comparison for benchmarks.
 Run the enable playbook again after comparison benchmarks to restore the
 MongoDB 8-recommended configuration.
 
-The RK1 kernel must expose `/sys/kernel/mm/transparent_hugepage` (or the
-Red Hat equivalent) with `CONFIG_TRANSPARENT_HUGEPAGE` enabled. The playbooks
+The RK1 kernel must expose `/sys/kernel/mm/transparent_hugepage` with `CONFIG_TRANSPARENT_HUGEPAGE` enabled. The playbooks
 cannot enable THP when the kernel omits that interface; install or boot a
 kernel built with that option first. Check the active kernel with:
 
@@ -518,6 +515,53 @@ zgrep CONFIG_TRANSPARENT_HUGEPAGE /proc/config.gz 2>/dev/null || \
   grep CONFIG_TRANSPARENT_HUGEPAGE "/boot/config-$(uname -r)"
 ls -ld /sys/kernel/mm/*transparent_hugepage
 ```
+
+### Evaluating THP On vs. THP Off on ARM
+
+The cache-pressure workload provides a production-like A/B test for the
+Transparent Huge Pages setting on the ARM64 RK1 cluster. It combines a
+50-million-document dataset, majority write concern, increasing client
+concurrency, memory pressure, heavy NVMe activity, and replica-set
+synchronization. This tests more than peak throughput: it also exercises
+durability, replication consistency, and resilience under sustained load.
+
+Use the same cluster, database configuration, dataset, and benchmark command
+for both runs. Change only the THP state:
+
+1. Run `thp_enable.yml`, reboot if required, and verify that THP is enabled.
+2. Run the cache-pressure workload with THP enabled and record the results.
+3. Run `thp_disable.yml`, reboot if required, and verify that THP is disabled.
+4. Run the identical workload again and compare the results.
+
+The workload definition is
+[`plgm-workloads/config.std-cache_pressure.yaml`](plgm-workloads/config.std-cache_pressure.yaml).
+It seeds `10,000,000` documents and steps active workers through `4`, `8`,
+`16`, and `32`. The checked-in file also contains a final `64`-worker step;
+omit that step when running the requested 4-to-32 comparison, or retain it as
+an optional saturation point after the primary comparison.
+
+Run PLGM against the replica set with majority acknowledgement explicitly
+enabled:
+
+```bash
+cd ~/rk1-ansible/plgm-workloads
+PLGM_URI='mongodb://rk1-node1:27017,rk1-node2:27017,rk1-node3:27017/?replicaSet=turingpi_rs&w=majority' \
+  ./percona-load-generator-mongodb-4.6.0/bin/plgm config.std-cache_pressure.yaml
+```
+
+For each THP state, capture at least:
+
+- operations per second and latency at each worker step;
+- MongoDB replication lag, primary/secondary health, and any elections;
+- NVMe throughput, latency, utilization, and filesystem space;
+- node memory, swap activity, CPU usage, and load average;
+- failed operations, timeouts, and final document counts.
+
+Keep the test duration, seed state, MongoDB cache settings, compressor, and
+client placement constant between runs. Warm up the cluster consistently and
+repeat each THP state when possible. The useful result is the difference
+between THP-on and THP-off under the same memory and replication pressure,
+not an isolated single-run peak.
 
 ### Further Performance Optimizations Worth Testing
 

@@ -1,0 +1,179 @@
+---
+# YCSB cache-pressure test against the unauthenticated MongoDB primary.
+# The 10 million records exceed the 6 GB WiredTiger cache before compression.
+# Usage:
+#   ansible-playbook --ask-vault-pass -i inventory.yml ycsb_cache_pressure_test.yml \
+#     -e confirm_unauthenticated_ycsb=true
+
+- name: Run YCSB WiredTiger cache-pressure test
+  hosts: control
+  become: yes
+  gather_facts: no
+  vars:
+    ycsb_image: redis/go-ycsb@sha256:1a61a25f285b8f31686634d4e37668071b4cfe9912cd8f2cfb416d76b4fd567f
+    ycsb_workload_file: /tmp/workload-rk1-cache-pressure
+    ycsb_database: ycsb
+    ycsb_primary_host: rk1-node1
+    ycsb_primary_port: 27017
+    ycsb_record_count: 10000000
+    ycsb_operation_count: 1000000
+    ycsb_max_execution_time: 600
+    ycsb_threads_sweep:
+      - 4
+      - 8
+      - 16
+      - 32
+      - 64
+    ycsb_workload:
+      operationcount: 1000000
+      fieldcount: 10
+      fieldlength: 100
+      readallfields: true
+      writeallfields: true
+      readproportion: 0.60
+      updateproportion: 0.20
+      scanproportion: 0.15
+      insertproportion: 0.05
+      readmodifywriteproportion: 0.00
+      requestdistribution: zipfian
+      scanlengthdistribution: uniform
+
+  pre_tasks:
+    - name: Require explicit acknowledgement of unauthenticated testing
+      ansible.builtin.assert:
+        that:
+          - confirm_unauthenticated_ycsb | default(false) | bool
+        fail_msg: >-
+          This test sends unauthenticated traffic to MongoDB. Re-run with
+          -e confirm_unauthenticated_ycsb=true only on an isolated test cluster.
+
+    - name: Verify primary is reachable
+      ansible.builtin.wait_for:
+        host: "{{ ycsb_primary_host }}"
+        port: "{{ ycsb_primary_port }}"
+        timeout: 30
+
+  tasks:
+    - name: Pull the YCSB container image
+      ansible.builtin.command:
+        argv:
+          - docker
+          - pull
+          - "{{ ycsb_image }}"
+      changed_when: true
+
+    - name: Create cache-pressure workload definition
+      ansible.builtin.copy:
+        dest: "{{ ycsb_workload_file }}"
+        mode: '0644'
+        content: |
+          workload=site.ycsb.workloads.CoreWorkload
+          recordcount={{ ycsb_record_count }}
+          operationcount={{ ycsb_workload.operationcount }}
+          fieldcount={{ ycsb_workload.fieldcount }}
+          fieldlength={{ ycsb_workload.fieldlength }}
+          readallfields={{ ycsb_workload.readallfields }}
+          writeallfields={{ ycsb_workload.writeallfields }}
+          readproportion={{ ycsb_workload.readproportion }}
+          updateproportion={{ ycsb_workload.updateproportion }}
+          scanproportion={{ ycsb_workload.scanproportion }}
+          insertproportion={{ ycsb_workload.insertproportion }}
+          readmodifywriteproportion={{ ycsb_workload.readmodifywriteproportion }}
+          requestdistribution={{ ycsb_workload.requestdistribution }}
+          scanlengthdistribution={{ ycsb_workload.scanlengthdistribution }}
+
+    - name: Load cache-pressure YCSB dataset into the primary
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - --rm
+          - --entrypoint
+          - /go-ycsb
+          - --network
+          - host
+          - --add-host
+          - "rk1-node1:{{ hostvars['rk1-node1'].ansible_host }}"
+          - --add-host
+          - "rk1-node2:{{ hostvars['rk1-node2'].ansible_host }}"
+          - --add-host
+          - "rk1-node3:{{ hostvars['rk1-node3'].ansible_host }}"
+          - --add-host
+          - "rk1-node4:{{ hostvars['rk1-node4'].ansible_host }}"
+          - --volume
+          - "{{ ycsb_workload_file }}:/workload:ro"
+          - "{{ ycsb_image }}"
+          - load
+          - mongodb
+          - -P
+          - /workload
+          - -p
+          - "mongodb.url=mongodb://{{ ycsb_primary_host }}:{{ ycsb_primary_port }}/{{ ycsb_database }}?directConnection=true"
+          - -p
+          - "recordcount={{ ycsb_record_count }}"
+          - -p
+          - "insertcount={{ ycsb_record_count }}"
+          - -p
+          - "dropdata=false"
+          - -p
+          - "mongodb.write_concern=majority"
+      register: ycsb_load
+      changed_when: true
+      failed_when: >-
+        ycsb_load.rc != 0 or
+        'Run finished' not in (ycsb_load.stdout | default('')) or
+        ('Count: ' ~ (ycsb_record_count | string)) not in (ycsb_load.stdout | default(''))
+
+    - name: Run cache-pressure workload across the thread sweep
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - --rm
+          - --entrypoint
+          - /go-ycsb
+          - --network
+          - host
+          - --add-host
+          - "rk1-node1:{{ hostvars['rk1-node1'].ansible_host }}"
+          - --add-host
+          - "rk1-node2:{{ hostvars['rk1-node2'].ansible_host }}"
+          - --add-host
+          - "rk1-node3:{{ hostvars['rk1-node3'].ansible_host }}"
+          - --add-host
+          - "rk1-node4:{{ hostvars['rk1-node4'].ansible_host }}"
+          - --volume
+          - "{{ ycsb_workload_file }}:/workload:ro"
+          - "{{ ycsb_image }}"
+          - run
+          - mongodb
+          - -P
+          - /workload
+          - -p
+          - "mongodb.url=mongodb://{{ ycsb_primary_host }}:{{ ycsb_primary_port }}/{{ ycsb_database }}?directConnection=true"
+          - -p
+          - "operationcount={{ ycsb_operation_count }}"
+          - -p
+          - "threadcount={{ item }}"
+          - -p
+          - "maxexecutiontime={{ ycsb_max_execution_time }}"
+          - -p
+          - "mongodb.read_preference=primary"
+          - -p
+          - "mongodb.write_concern=majority"
+      loop: "{{ ycsb_threads_sweep }}"
+      loop_control:
+        label: "threads={{ item }}"
+      register: ycsb_runs
+      changed_when: true
+
+    - name: Display YCSB load result
+      ansible.builtin.debug:
+        var: ycsb_load.stdout_lines
+
+    - name: Display YCSB thread-sweep results
+      ansible.builtin.debug:
+        msg: "{{ item.item }} threads: {{ item.stdout_lines }}"
+      loop: "{{ ycsb_runs.results }}"
+      loop_control:
+        label: "threads={{ item.item }}"

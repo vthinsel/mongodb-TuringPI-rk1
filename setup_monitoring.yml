@@ -98,6 +98,21 @@
                   - 'rk1-node2:9100' 
                   - 'rk1-node3:9100'
                   - 'rk1-node4:9100'
+
+            - job_name: 'cadvisor'
+              static_configs:
+                - targets: ['rk1-node1:8080']
+                  labels:
+                    node_name: 'rk1-node1'
+                - targets: ['rk1-node2:8080']
+                  labels:
+                    node_name: 'rk1-node2'
+                - targets: ['rk1-node3:8080']
+                  labels:
+                    node_name: 'rk1-node3'
+                - targets: ['rk1-node4:8080']
+                  labels:
+                    node_name: 'rk1-node4'
                   
             - job_name: 'mongodb-exporter'
               static_configs:
@@ -216,6 +231,22 @@
                 - '--path.rootfs=/rootfs'
                 - '--path.sysfs=/host/sys'
                 - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+
+            cadvisor:
+              image: gcr.io/cadvisor/cadvisor:v0.52.1
+              container_name: cadvisor
+              restart: unless-stopped
+              privileged: true
+              ports:
+                - "8080:8080"
+              volumes:
+                - /:/rootfs:ro
+                - /var/run:/var/run:ro
+                - /sys:/sys:ro
+                - /var/lib/docker:/var/lib/docker:ro
+                - /dev/disk:/dev/disk:ro
+              command:
+                - '--docker_only=true'
                 
         dest: "{{ monitoring_dir }}/docker-compose.yml"
       no_log: true
@@ -317,3 +348,21 @@
           --mongodb.uri=mongodb://{{ vault_mongodb_admin_user }}:{{ vault_mongodb_admin_password_uri }}@{{ inventory_hostname }}:27017/?authSource=admin&directConnection=true
           --collect-all
       no_log: true
+
+    - name: 📊 Run cAdvisor container
+      docker_container:
+        name: cadvisor
+        image: gcr.io/cadvisor/cadvisor:v0.52.1
+        state: started
+        restart_policy: always
+        privileged: yes
+        ports:
+          - "8080:8080"
+        volumes:
+          - "/:/rootfs:ro"
+          - "/var/run:/var/run:ro"
+          - "/sys:/sys:ro"
+          - "/var/lib/docker:/var/lib/docker:ro"
+          - "/dev/disk:/dev/disk:ro"
+        command:
+          - "--docker_only=true"
