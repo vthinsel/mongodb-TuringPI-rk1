@@ -62,3 +62,7 @@
     - name: Report the active THP settings
       debug:
         var: thp_settings.stdout_lines
+
+    - name: Reboot
+      ansible.builtin.reboot:
+        reboot_timeout: 600
