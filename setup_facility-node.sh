@@ -48,6 +48,13 @@ else
     exit 1
 fi
 
+if python3 -c 'import matplotlib' >/dev/null 2>&1; then
+    echo "✅ Matplotlib available: $(python3 -c 'import matplotlib; print(matplotlib.__version__)')"
+else
+    echo "❌ Matplotlib installation failed"
+    exit 1
+fi
+
 # Generate SSH key if it doesn't exist
 if [ ! -f ~/.ssh/id_rsa ]; then
     ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""

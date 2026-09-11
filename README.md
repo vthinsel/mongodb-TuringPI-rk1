@@ -518,53 +518,135 @@ ls -ld /sys/kernel/mm/*transparent_hugepage
 
 ### Evaluating THP On vs. THP Off on ARM
 
-The cache-pressure workload provides a production-like A/B test for the
-Transparent Huge Pages setting on the ARM64 RK1 cluster. It combines a
-50-million-document dataset, majority write concern, increasing client
-concurrency, memory pressure, heavy NVMe activity, and replica-set
-synchronization. This tests more than peak throughput: it also exercises
-durability, replication consistency, and resilience under sustained load.
+The YCSB cache-pressure playbook provides a repeatable A/B benchmark for
+Transparent Huge Pages on the ARM64 RK1 MongoDB cluster. Run the same dataset,
+workload, thread sweep, and monitoring time range in both configurations; only
+the THP state should change.
 
-Use the same cluster, database configuration, dataset, and benchmark command
-for both runs. Change only the THP state:
+#### Benchmark Procedure
 
-1. Run `thp_enable.yml`, reboot if required, and verify that THP is enabled.
-2. Run the cache-pressure workload with THP enabled and record the results.
-3. Run `thp_disable.yml`, reboot if required, and verify that THP is disabled.
-4. Run the identical workload again and compare the results.
+1. Enable THP and reboot if requested:
 
-The workload definition is
-[`plgm-workloads/config.std-cache_pressure.yaml`](plgm-workloads/config.std-cache_pressure.yaml).
-It seeds `10,000,000` documents and steps active workers through `4`, `8`,
-`16`, and `32`. The checked-in file also contains a final `64`-worker step;
-omit that step when running the requested 4-to-32 comparison, or retain it as
-an optional saturation point after the primary comparison.
+  ```bash
+  ansible-playbook --ask-vault-pass -i inventory.yml thp_enable.yml
+  ```
 
-Run PLGM against the replica set with majority acknowledgement explicitly
-enabled:
+2. Confirm the reported THP settings, then run the benchmark and give it a
+  descriptive prefix:
 
-```bash
-cd ~/rk1-ansible/plgm-workloads
-PLGM_URI='mongodb://rk1-node1:27017,rk1-node2:27017,rk1-node3:27017/?replicaSet=turingpi_rs&w=majority' \
-  ./percona-load-generator-mongodb-4.6.0/bin/plgm config.std-cache_pressure.yaml
+  ```bash
+  ansible-playbook --ask-vault-pass -i inventory.yml ycsb_cache_pressure_test.yml \
+    -e confirm_unauthenticated_ycsb=true \
+    -e load_dataset=true \
+    -e file_prefix=thp
+  ```
+
+3. Disable THP and reboot if requested:
+
+  ```bash
+  ansible-playbook --ask-vault-pass -i inventory.yml thp_disable.yml
+  ```
+
+4. Confirm the reported THP settings and repeat the benchmark with a different
+  prefix:
+
+  ```bash
+  ansible-playbook --ask-vault-pass -i inventory.yml ycsb_cache_pressure_test.yml \
+    -e confirm_unauthenticated_ycsb=true \
+    -e file_prefix=nothp
+  ```
+
+The dataset load is opt-in. Load it once before the first comparison run with
+`-e load_dataset=true`; subsequent runs reuse the existing dataset and should
+leave that option unset. Loading uses 32 client threads and primary-only write
+acknowledgement for faster preparation. The measured workload uses majority
+write concern and direct primary connections.
+
+#### Playbook Parameters
+
+The main parameters are defined near the top of
+`ycsb_cache_pressure_test.yml` and can be overridden with `-e`:
+
+| Parameter | Default | Purpose |
+| --- | ---: | --- |
+| `ycsb_record_count` | `50000000` | Number of documents in the dataset |
+| `ycsb_operation_count` | `1000000` | Operations per thread-sweep run |
+| `ycsb_max_execution_time` | `3600` | Maximum seconds allowed per run |
+| `ycsb_threads_sweep` | `4, 8, 16, 32, 64` | Client concurrency levels |
+| `load_dataset` | `false` | Load or reuse the dataset |
+| `ycsb_load_threads` | `32` | Concurrent clients used during loading |
+| `ycsb_load_write_concern` | `1` | Load-phase acknowledgement level |
+| `ycsb_cache_pressure_write_concern` | `majority` | Load-phase acknowledgement level|
+| `file_prefix` | Current `YYYYMMDD_HHMMSS` | Prefix for all result files |
+
+The workload is read/update/scan only: 60% reads, 25% updates, and 15% scans.
+Inserts are disabled when reusing a populated dataset, avoiding duplicate-key
+errors. The measured runs use `mongodb.write_concern=majority` and
+`mongodb.read_preference=primary`.
+
+#### Generated Results
+
+Results are written to `ycsb_results/` on the control node. For a prefix of
+`nothp`, the playbook creates one raw file per thread level:
+
+```text
+ycsb_results/nothp-threads-4.txt
+ycsb_results/nothp-threads-8.txt
+ycsb_results/nothp-threads-16.txt
+ycsb_results/nothp-threads-32.txt
+ycsb_results/nothp-threads-64.txt
 ```
 
-For each THP state, capture at least:
+When `load_dataset=true`, the loader output is also saved as
+`nothp-load.txt`. The thread files contain YCSB throughput, operation counts,
+average latency, and percentile latency for READ, UPDATE, SCAN, and TOTAL.
 
-- operations per second and latency at each worker step;
-- MongoDB replication lag, primary/secondary health, and any elections;
-- NVMe throughput, latency, utilization, and filesystem space;
-- node memory, swap activity, CPU usage, and load average;
-- failed operations, timeouts, and final document counts.
+#### Python Report Generator
 
-Keep the test duration, seed state, MongoDB cache settings, compressor, and
-client placement constant between runs. Warm up the cluster consistently and
-repeat each THP state when possible. The useful result is the difference
-between THP-on and THP-off under the same memory and replication pressure,
-not an isolated single-run peak.
+`ycsb_report.py` parses the raw thread files and generates an aggregate CSV and
+PNG chart. Matplotlib is installed by `setup_facility-node.sh` as
+`python3-matplotlib`.
+
+The playbook runs the report generator automatically. To regenerate a report
+manually or process an existing run:
+
+```bash
+python3 ycsb_report.py \
+  --results-dir ycsb_results \
+  --prefix nothp \
+  --output-prefix nothp
+```
+
+This creates `ycsb_results/nothp-summary.csv` and
+`ycsb_results/nothp-report.png`. The chart contains throughput, average
+latency, p95 latency, and operation-count panels plotted against client
+threads. The CSV is intended for further comparison or archival.
+
+#### Generated Reports
+
+##### THP Enabled results
+![THP enabled YCSB report](./ycsb_results/thponmajority-report.png)
+![THP enabled Grafana](./img/ycsb_thpon_writeconcermajority.png)
+
+##### THP de-activated results
+![THP disabled YCSB report](./ycsb_results/thpoffmajority-report.png)
+![THP disabled Grafana](./img/ycsb_thpoff_writeconcermajority.png)
+
+##### Benchmark Conclusion
+
+The results show that increasing concurrency has a much greater impact on performance than enabling Transparent Huge Pages (THP).
+
+Throughput scales well from 4 to 16 threads, after which the system enters a saturation zone where additional concurrency provides limited throughput gains while significantly increasing latency.
+
+THP did not provide a consistent performance benefit for this workload. It improved throughput by ~4.7% at 4 threads, but was neutral or detrimental at higher concurrency, with the largest regression (~9.4%) observed at 16 threads. Tail latencies, particularly for READ and SCAN operations, also tended to be higher with THP enabled.
+
+On this RK1 ARM64 platform, thread concurrency has a much stronger impact on MongoDB performance than THP. The most efficient operating range appears to be around 16 threads, while THP provides no measurable advantage under higher load.
+
+These results are specific to this hardware, MongoDB configuration, YCSB workload, and test conditions. They should not be interpreted as contradicting MongoDB's general THP recommendation. Multiple repeated runs and additional system-level metrics would be required to determine whether the observed differences are directly attributable to THP.
 
 ### Further Performance Optimizations Worth Testing
 
+- Switch mongo from docker to bare-metal. Doing this would provide a performance improvement by eliminating the docker overhead, but maybe also highlight a better THP behavior as docker might interfere on this setup too.
 - Benchmark `mongodb_wiredtiger_cache_size_gb` at `4`, `6`, and `8` on the
   16 GB RK1 nodes. The system currently defaults to `6` to keep more RAM
   available for Linux page cache, Docker overhead, and monitoring while still

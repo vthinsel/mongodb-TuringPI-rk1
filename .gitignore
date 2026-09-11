@@ -1,3 +1,6 @@
+
+__pycache__/
+
 # Ansible secrets and local password files
 vault_password_file
 *.vault-pass

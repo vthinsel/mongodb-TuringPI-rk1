@@ -10,6 +10,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 
 
 RESULT_RE = re.compile(
@@ -20,6 +21,14 @@ RESULT_RE = re.compile(
     r".*?95th\(us\):\s+(?P<p95>[\d.]+)"
 )
 FILE_RE = re.compile(r"^(?P<prefix>.+)-threads-(?P<threads>\d+)\.txt$")
+
+
+def format_metric_tick(value: float, _position: float) -> str:
+    absolute_value = abs(value)
+    for threshold, suffix in ((1_000_000_000, "G"), (1_000_000, "M"), (1_000, "K")):
+        if absolute_value >= threshold:
+            return f"{value / threshold:.1f}".rstrip("0").rstrip(".") + suffix
+    return f"{value:.0f}"
 
 
 def parse_results(results_dir: Path, prefix: str | None) -> list[dict[str, object]]:
@@ -60,7 +69,13 @@ def create_chart(rows: list[dict[str, object]], output: Path) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(14, 9), constrained_layout=True)
     metrics = [("ops", "Throughput (ops/s)"), ("avg_us", "Average latency (us)"),
                ("p95_us", "95th percentile latency (us)"), ("count", "Operation count")]
-    colors = {prefix: plt.cm.tab10(index % 10) for index, prefix in enumerate(prefixes)}
+    colors = {
+        "TOTAL": "#1f77b4",
+        "READ": "#2ca02c",
+        "UPDATE": "#ff7f0e",
+        "SCAN": "#d62728",
+    }
+    line_styles = {prefix: "-" if index == 0 else "--" for index, prefix in enumerate(prefixes)}
 
     for axis, (metric, title) in zip(axes.flat, metrics):
         for prefix in prefixes:
@@ -76,13 +91,14 @@ def create_chart(rows: list[dict[str, object]], output: Path) -> None:
                     [row["threads"] for row in points],
                     [row[metric] for row in points],
                     marker="o",
-                    color=colors[prefix],
-                    linestyle="--" if operation != "TOTAL" else "-",
+                    color=colors[operation],
+                    linestyle=line_styles[prefix],
                     label=label,
                 )
         axis.set_title(title)
         axis.set_xlabel("YCSB client threads")
         axis.set_xticks(sorted({int(row["threads"]) for row in rows}))
+        axis.yaxis.set_major_formatter(FuncFormatter(format_metric_tick))
         axis.grid(True, alpha=0.3)
         axis.legend(fontsize="small")
 

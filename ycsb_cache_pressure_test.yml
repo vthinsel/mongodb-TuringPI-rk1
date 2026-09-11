@@ -1,9 +1,10 @@
 ---
 # YCSB cache-pressure test against the unauthenticated MongoDB primary.
-# The 10 million records exceed the 6 GB WiredTiger cache before compression.
+# The 50 million records exceed the 6 GB WiredTiger cache before compression.
 # Usage:
 #   ansible-playbook --ask-vault-pass -i inventory.yml ycsb_cache_pressure_test.yml \
-#     -e confirm_unauthenticated_ycsb=true
+#     -e confirm_unauthenticated_ycsb=true -e load_dataset=true \
+#     -e file_prefix=cache-pressure-thp-on
 
 - name: Run YCSB WiredTiger cache-pressure test
   hosts: control
@@ -15,9 +16,16 @@
     ycsb_database: ycsb
     ycsb_primary_host: rk1-node1
     ycsb_primary_port: 27017
-    ycsb_record_count: 10000000
-    ycsb_operation_count: 1000000
-    ycsb_max_execution_time: 600
+    ycsb_record_count: 50000000
+    ycsb_operation_count: 200000
+    ycsb_max_execution_time: 3600
+    load_dataset: false
+    file_prefix: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+    ycsb_results_dir: "{{ playbook_dir }}/ycsb_results"
+    ycsb_load_threads: 32
+    ycsb_load_write_concern: 1
+    ycsb_cache_pressure_write_concern: majority
+    #ycsb_cache_pressure_write_concern: 1
     ycsb_threads_sweep:
       - 4
       - 8
@@ -25,15 +33,14 @@
       - 32
       - 64
     ycsb_workload:
-      operationcount: 1000000
       fieldcount: 10
       fieldlength: 100
       readallfields: true
       writeallfields: true
       readproportion: 0.60
-      updateproportion: 0.20
+      updateproportion: 0.25
       scanproportion: 0.15
-      insertproportion: 0.05
+      insertproportion: 0.00
       readmodifywriteproportion: 0.00
       requestdistribution: zipfian
       scanlengthdistribution: uniform
@@ -53,7 +60,31 @@
         port: "{{ ycsb_primary_port }}"
         timeout: 30
 
+    - name: Verify Python report dependency
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - import matplotlib
+      changed_when: false
+      failed_when: false
+      register: matplotlib_check
+
+    - name: Require Python report dependency
+      ansible.builtin.assert:
+        that:
+          - matplotlib_check.rc == 0
+        fail_msg: >-
+          Matplotlib is missing from python3 on the control node. Run
+          ./setup_facility-node.sh on rk1-node4, then rerun this playbook.
+
   tasks:
+    - name: Create YCSB results directory
+      ansible.builtin.file:
+        path: "{{ ycsb_results_dir }}"
+        state: directory
+        mode: '0755'
+
     - name: Pull the YCSB container image
       ansible.builtin.command:
         argv:
@@ -69,7 +100,7 @@
         content: |
           workload=site.ycsb.workloads.CoreWorkload
           recordcount={{ ycsb_record_count }}
-          operationcount={{ ycsb_workload.operationcount }}
+          operationcount={{ ycsb_operation_count }}
           fieldcount={{ ycsb_workload.fieldcount }}
           fieldlength={{ ycsb_workload.fieldlength }}
           readallfields={{ ycsb_workload.readallfields }}
@@ -114,15 +145,18 @@
           - -p
           - "insertcount={{ ycsb_record_count }}"
           - -p
-          - "dropdata=false"
+          - "threadcount={{ ycsb_load_threads }}"
           - -p
-          - "mongodb.write_concern=majority"
+          - "dropdata=true"
+          - -p
+          - "mongodb.write_concern={{ ycsb_load_write_concern }}"
       register: ycsb_load
       changed_when: true
       failed_when: >-
         ycsb_load.rc != 0 or
         'Run finished' not in (ycsb_load.stdout | default('')) or
         ('Count: ' ~ (ycsb_record_count | string)) not in (ycsb_load.stdout | default(''))
+      when: load_dataset | bool
 
     - name: Run cache-pressure workload across the thread sweep
       ansible.builtin.command:
@@ -160,7 +194,7 @@
           - -p
           - "mongodb.read_preference=primary"
           - -p
-          - "mongodb.write_concern=majority"
+          - "mongodb.write_concern={{ ycsb_cache_pressure_write_concern }}"
       loop: "{{ ycsb_threads_sweep }}"
       loop_control:
         label: "threads={{ item }}"
@@ -170,6 +204,42 @@
     - name: Display YCSB load result
       ansible.builtin.debug:
         var: ycsb_load.stdout_lines
+      when: load_dataset | bool
+
+    - name: Save YCSB load result
+      ansible.builtin.copy:
+        dest: "{{ ycsb_results_dir }}/{{ file_prefix }}-load.txt"
+        mode: '0644'
+        content: "{{ (ycsb_load.stdout | default('')) ~ '\n' ~ (ycsb_load.stderr | default('')) }}"
+      when: load_dataset | bool
+
+    - name: Save YCSB thread-sweep results
+      ansible.builtin.copy:
+        dest: "{{ ycsb_results_dir }}/{{ file_prefix }}-threads-{{ item.item }}.txt"
+        mode: '0644'
+        content: "{{ (item.stdout | default('')) ~ '\n' ~ (item.stderr | default('')) }}"
+      loop: "{{ ycsb_runs.results }}"
+      loop_control:
+        label: "threads={{ item.item }}"
+
+    - name: Generate YCSB thread-sweep report
+      ansible.builtin.command:
+        argv:
+          - python3
+          - ycsb_report.py
+          - --results-dir
+          - "{{ ycsb_results_dir }}"
+          - --prefix
+          - "{{ file_prefix }}"
+          - --output-prefix
+          - "{{ file_prefix }}"
+        chdir: "{{ playbook_dir }}"
+      register: ycsb_report
+      changed_when: true
+
+    - name: Display YCSB report paths
+      ansible.builtin.debug:
+        var: ycsb_report.stdout
 
     - name: Display YCSB thread-sweep results
       ansible.builtin.debug:
