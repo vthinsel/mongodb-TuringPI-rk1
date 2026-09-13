@@ -14,11 +14,15 @@
     ycsb_image: redis/go-ycsb@sha256:1a61a25f285b8f31686634d4e37668071b4cfe9912cd8f2cfb416d76b4fd567f
     ycsb_workload_file: /tmp/workload-rk1-cache-pressure
     ycsb_database: ycsb
+    #ycsb_database: ycsbsmall
     ycsb_primary_host: rk1-node1
     ycsb_primary_port: 27017
     ycsb_record_count: 50000000
-    ycsb_operation_count: 200000
-    ycsb_max_execution_time: 3600
+    ycsb_operation_count: 50000000000 #very high to ensure maxexecutiontime is reached before operationcount
+    #ycsb_operation_count: 500000 #normal value for reasonnable test duration 
+    #Workaround for ycsb-go not implementing maxexecutiontime, we will use timeout to limit the test duration     
+    ycsb_run_duration_seconds: 600
+    ycsb_shutdown_grace_seconds: 30
     load_dataset: false
     file_prefix: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
     ycsb_results_dir: "{{ playbook_dir }}/ycsb_results"
@@ -78,6 +82,24 @@
           Matplotlib is missing from python3 on the control node. Run
           ./setup_facility-node.sh on rk1-node4, then rerun this playbook.
 
+    - name: Wait for the YCSB target node to become primary
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - mongodb
+          - mongosh
+          - --quiet
+          - --eval
+          - print(db.hello().isWritablePrimary)
+      delegate_to: "{{ ycsb_primary_host }}"
+      register: ycsb_primary_check
+      changed_when: false
+      until: ycsb_primary_check.stdout | trim == 'true'
+      retries: 60
+      delay: 5
+      when: load_dataset | bool
+
   tasks:
     - name: Create YCSB results directory
       ansible.builtin.file:
@@ -113,6 +135,31 @@
           requestdistribution={{ ycsb_workload.requestdistribution }}
           scanlengthdistribution={{ ycsb_workload.scanlengthdistribution }}
 
+    - name: Drop the existing YCSB collection before loading
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - mongodb
+          - mongosh
+          - --quiet
+          - --eval
+          - >-
+            const targetDb = db.getSiblingDB("{{ ycsb_database }}");
+            const result = targetDb.runCommand({
+              drop: "usertable",
+              writeConcern: { w: "majority" }
+            });
+            if (!result.ok && result.codeName !== "NamespaceNotFound") {
+              printjson(result);
+              quit(1);
+            }
+            printjson(result);
+      delegate_to: "{{ ycsb_primary_host }}"
+      register: ycsb_drop
+      changed_when: true
+      when: load_dataset | bool
+
     - name: Load cache-pressure YCSB dataset into the primary
       ansible.builtin.command:
         argv:
@@ -147,8 +194,6 @@
           - -p
           - "threadcount={{ ycsb_load_threads }}"
           - -p
-          - "dropdata=true"
-          - -p
           - "mongodb.write_concern={{ ycsb_load_write_concern }}"
       register: ycsb_load
       changed_when: true
@@ -161,6 +206,10 @@
     - name: Run cache-pressure workload across the thread sweep
       ansible.builtin.command:
         argv:
+          - timeout
+          - --signal=INT
+          - "--kill-after={{ ycsb_shutdown_grace_seconds }}s"
+          - "{{ ycsb_run_duration_seconds }}s"
           - docker
           - run
           - --rm
@@ -190,8 +239,6 @@
           - -p
           - "threadcount={{ item }}"
           - -p
-          - "maxexecutiontime={{ ycsb_max_execution_time }}"
-          - -p
           - "mongodb.read_preference=primary"
           - -p
           - "mongodb.write_concern={{ ycsb_cache_pressure_write_concern }}"
@@ -200,6 +247,11 @@
         label: "threads={{ item }}"
       register: ycsb_runs
       changed_when: true
+      # GNU timeout returns 124 after sending SIGINT at the requested duration.
+      # Exit 137 means the grace period expired and remains a failure.
+      failed_when: >-
+        ycsb_runs.rc not in [0, 124] or
+        'Run finished' not in (ycsb_runs.stdout | default(''))
 
     - name: Display YCSB load result
       ansible.builtin.debug:

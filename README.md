@@ -516,14 +516,64 @@ zgrep CONFIG_TRANSPARENT_HUGEPAGE /proc/config.gz 2>/dev/null || \
 ls -ld /sys/kernel/mm/*transparent_hugepage
 ```
 
-### Evaluating THP On vs. THP Off on ARM
+## Evaluating Transparent Huge Pages on ARM64
 
-The YCSB cache-pressure playbook provides a repeatable A/B benchmark for
-Transparent Huge Pages on the ARM64 RK1 MongoDB cluster. Run the same dataset,
-workload, thread sweep, and monitoring time range in both configurations; only
-the THP state should change.
+Starting with MongoDB 8, Transparent Huge Pages (THP) are recommended on
+supported Linux systems. Because the stock RK1 kernel does not expose the
+required THP interface, this cluster uses a custom kernel built with
+`CONFIG_TRANSPARENT_HUGEPAGE=y`.
 
-#### Benchmark Procedure
+The objective of this benchmark is to determine whether MongoDB's use of THP
+produces a measurable application-level benefit on the RK3588 ARM64 platform.
+Two complementary datasets are used:
+
+| Dataset | Records | Purpose |
+| --- | ---: | --- |
+| Small | 500,000 | Observe THP with a relatively small working set |
+| Large | 50,000,000 | Exercise WiredTiger eviction and storage under cache pressure |
+
+The tests compare identical MongoDB, Docker, YCSB, storage, and hardware
+configurations. Only the host THP state changes. Docker does not isolate a
+container from host kernel memory management, so THP applies directly to the
+containerized `mongod` process. The MongoDB containers have no CPU, memory, or
+CPU-affinity limits, and `/data/db` is a host bind mount rather than Docker's
+writable overlay filesystem.
+
+### Test Environment
+
+| Component | Configuration |
+| --- | --- |
+| MongoDB | 8.3.8, three-node replica set |
+| Architecture | ARM64, Rockchip RK3588 |
+| Memory | 16 GB per MongoDB node |
+| Storage | Local NVMe, XFS |
+| Deployment | Docker, without resource limits |
+| WiredTiger cache | Approximately 7.2 GiB |
+| YCSB client | `redis/go-ycsb` ARM64 container on `rk1-node4` |
+| Target | Direct connection to the primary |
+| Measured write concern | `majority` |
+
+### Workload and Measurement Method
+
+Both datasets use the same mixed workload:
+
+- 60% READ, 25% UPDATE, and 15% SCAN
+- Zipfian request distribution
+- uniform scan-length distribution
+- `readPreference=primary`
+- `directConnection=true`
+- 4, 8, 16, 32, and 64 YCSB client threads
+- 600 seconds per concurrency level
+
+The configured operation count is deliberately much larger than can be
+completed during a run. The playbook terminates each test after 600 seconds,
+making the comparison time-bound instead of operation-count-bound.
+
+Dataset creation is separate from the measured workload. Loading uses 32
+threads and `writeConcern=1` to reduce preparation time; measured runs use
+`writeConcern=majority`. The load phase is not included in benchmark results.
+
+### Benchmark Procedure
 
 1. Enable THP and reboot if requested:
 
@@ -538,7 +588,7 @@ the THP state should change.
   ansible-playbook --ask-vault-pass -i inventory.yml ycsb_cache_pressure_test.yml \
     -e confirm_unauthenticated_ycsb=true \
     -e load_dataset=true \
-    -e file_prefix=thp
+    -e file_prefix=thpon
   ```
 
 3. Disable THP and reboot if requested:
@@ -553,7 +603,7 @@ the THP state should change.
   ```bash
   ansible-playbook --ask-vault-pass -i inventory.yml ycsb_cache_pressure_test.yml \
     -e confirm_unauthenticated_ycsb=true \
-    -e file_prefix=nothp
+    -e file_prefix=thpoff
   ```
 
 The dataset load is opt-in. Load it once before the first comparison run with
@@ -562,7 +612,7 @@ leave that option unset. Loading uses 32 client threads and primary-only write
 acknowledgement for faster preparation. The measured workload uses majority
 write concern and direct primary connections.
 
-#### Playbook Parameters
+### Playbook Parameters
 
 The main parameters are defined near the top of
 `ycsb_cache_pressure_test.yml` and can be overridden with `-e`:
@@ -570,13 +620,13 @@ The main parameters are defined near the top of
 | Parameter | Default | Purpose |
 | --- | ---: | --- |
 | `ycsb_record_count` | `50000000` | Number of documents in the dataset |
-| `ycsb_operation_count` | `1000000` | Operations per thread-sweep run |
-| `ycsb_max_execution_time` | `3600` | Maximum seconds allowed per run |
+| `ycsb_operation_count` | `50000000000` | Deliberately unreachable operation limit |
+| `ycsb_run_duration_seconds` | `600` | Duration of each concurrency level |
 | `ycsb_threads_sweep` | `4, 8, 16, 32, 64` | Client concurrency levels |
 | `load_dataset` | `false` | Load or reuse the dataset |
 | `ycsb_load_threads` | `32` | Concurrent clients used during loading |
 | `ycsb_load_write_concern` | `1` | Load-phase acknowledgement level |
-| `ycsb_cache_pressure_write_concern` | `majority` | Load-phase acknowledgement level|
+| `ycsb_cache_pressure_write_concern` | `majority` | Measured-run acknowledgement level |
 | `file_prefix` | Current `YYYYMMDD_HHMMSS` | Prefix for all result files |
 
 The workload is read/update/scan only: 60% reads, 25% updates, and 15% scans.
@@ -584,7 +634,7 @@ Inserts are disabled when reusing a populated dataset, avoiding duplicate-key
 errors. The measured runs use `mongodb.write_concern=majority` and
 `mongodb.read_preference=primary`.
 
-#### Generated Results
+### Generated Results
 
 Results are written to `ycsb_results/` on the control node. For a prefix of
 `nothp`, the playbook creates one raw file per thread level:
@@ -601,7 +651,7 @@ When `load_dataset=true`, the loader output is also saved as
 `nothp-load.txt`. The thread files contain YCSB throughput, operation counts,
 average latency, and percentile latency for READ, UPDATE, SCAN, and TOTAL.
 
-#### Python Report Generator
+### Python Report Generator
 
 `ycsb_report.py` parses the raw thread files and generates an aggregate CSV and
 PNG chart. Matplotlib is installed by `setup_facility-node.sh` as
@@ -622,31 +672,215 @@ This creates `ycsb_results/nothp-summary.csv` and
 latency, p95 latency, and operation-count panels plotted against client
 threads. The CSV is intended for further comparison or archival.
 
-#### Generated Reports
+### Small Dataset: 500,000 Documents
 
-##### THP Enabled results
-![THP enabled YCSB report](./ycsb_results/thponmajority-report.png)
-![THP enabled Grafana](./img/ycsb_thpon_writeconcermajority.png)
+The small dataset provides a low-cache-pressure baseline. Its first measured
+run starts from a different cache and memory state immediately after loading,
+so it is treated as a warm-up/transient run. Stabilized repetitions are highly
+reproducible, even though THP ON run 2 is missing and is not reconstructed.
 
-##### THP de-activated results
-![THP disabled YCSB report](./ycsb_results/thpoffmajority-report.png)
-![THP disabled Grafana](./img/ycsb_thpoff_writeconcermajority.png)
+**Figure 1 — Small-dataset Grafana overview (THP OFF and THP ON campaigns).**
 
-##### Benchmark Conclusion
+![MongoDB RK1 THP small-dataset benchmark](./img/ycsb_thpoff_thpon_smallds.png)
 
-The results show that increasing concurrency has a much greater impact on performance than enabling Transparent Huge Pages (THP).
+| Threads | THP OFF | THP ON | Result |
+| ---: | ---: | ---: | --- |
+| 4 | ~125 ops/s | ~125 ops/s | No measurable difference |
+| 8 | ~187 ops/s | ~187 ops/s | No measurable difference |
+| 16 | ~215 ops/s | ~216 ops/s | No measurable difference |
+| 32 | ~218 ops/s | ~218 ops/s | No measurable difference |
+| 64 | ~216-217 ops/s | ~217 ops/s | No measurable difference |
 
-Throughput scales well from 4 to 16 threads, after which the system enters a saturation zone where additional concurrency provides limited throughput gains while significantly increasing latency.
+Differences between stabilized THP ON and OFF runs remain below approximately
+1%. THP is nevertheless demonstrably active: the enabled nodes reach roughly
+2.7-2.9 GiB of `AnonHugePages`, with very few allocation fallbacks and little
+collapse/split activity. The neutral result therefore cannot be explained by
+MongoDB failing to obtain huge pages.
 
-THP did not provide a consistent performance benefit for this workload. It improved throughput by ~4.7% at 4 threads, but was neutral or detrimental at higher concurrency, with the largest regression (~9.4%) observed at 16 threads. Tail latencies, particularly for READ and SCAN operations, also tended to be higher with THP enabled.
+The small test exposes a very clear concurrency knee at **16 threads**.
+Throughput rises from about 125 ops/s at four threads to 215 ops/s at 16
+threads, then remains close to 217-218 ops/s. Average latency, however, rockets
+when concurrency is increased beyond that point.
 
-On this RK1 ARM64 platform, thread concurrency has a much stronger impact on MongoDB performance than THP. The most efficient operating range appears to be around 16 threads, while THP provides no measurable advantage under higher load.
+| Threads | Stabilized throughput | Average total latency | Change versus 16 threads |
+| ---: | ---: | ---: | --- |
+| 4 | ~125 ops/s | ~23 ms | Lower load |
+| 8 | ~187 ops/s | ~27 ms | Lower load |
+| **16** | **~215-216 ops/s** | **~49 ms** | **Best throughput/latency balance** |
+| 32 | ~218 ops/s | ~110 ms | ~1% more throughput, ~2.2x latency |
+| 64 | ~217 ops/s | ~232-239 ms | ~1% more throughput, ~4.8x latency |
 
-These results are specific to this hardware, MongoDB configuration, YCSB workload, and test conditions. They should not be interpreted as contradicting MongoDB's general THP recommendation. Multiple repeated runs and additional system-level metrics would be required to determine whether the observed differences are directly attributable to THP.
+The additional 32- and 64-thread concurrency is therefore counterproductive
+for this workload: it adds virtually no throughput while queueing and average
+latency increase sharply. **Sixteen threads is the practical sweet spot**, not
+merely an approximate knee in the curve.
+
+### Large Dataset: 50 Million Documents
+
+The large dataset is intentionally much greater than the effective WiredTiger
+cache. It creates sustained cache churn and exercises the full path through
+WiredTiger eviction, NVMe I/O, dirty-page processing, checkpointing, and
+replica-set acknowledgement.
+
+**Figure 2 — Large-dataset Grafana overview (50M documents, THP OFF followed by
+THP ON).**
+
+![MongoDB RK1 THP large-dataset benchmark](./img/ycsb_thpoff_thpon_largeds.png)
+
+The table below uses the arithmetic mean of the final YCSB totals from repeated
+runs 2-4. Run 1 is excluded consistently as the transient/warm-up repetition.
+Latency values are total-operation latency.
+
+| Threads | THP OFF ops/s | THP ON ops/s | Throughput change | Avg latency OFF/ON | P95 OFF/ON |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 77.7 | 79.0 | +1.7% | 51.4 / 50.6 ms | 341.8 / 337.4 ms |
+| 8 | 144.6 | 150.6 | +4.1% | 55.3 / 53.1 ms | 369.8 / 356.9 ms |
+| 16 | 257.9 | 261.9 | +1.6% | 62.0 / 61.1 ms | 424.4 / 411.9 ms |
+| 32 | 411.1 | 440.4 | +7.1% | 77.8 / 72.7 ms | 535.9 / 493.7 ms |
+| 64 | 605.4 | 638.4 | +5.5% | 105.6 / 100.1 ms | 718.0 / 670.7 ms |
+
+Unlike the small dataset, the repeated large-dataset results show a modest THP
+advantage at every tested concurrency level. The largest mean throughput gain
+is approximately 7.1% at 32 threads, while average and P95 latency are also
+lower with THP enabled at all five thread counts. The gain is not linear, so it
+should be interpreted as a workload-level effect rather than a fixed THP
+improvement factor.
+
+The dashboard confirms that this is a genuine cache-pressure workload:
+
+- WiredTiger cache remains around 80% full on the active data nodes.
+- eviction is sustained throughout the campaigns;
+- NVMe reads frequently reach approximately 150-200 MiB/s;
+- dirty-cache ratios rise and fall with checkpoint and writeback cycles;
+- replication lag adds occasional latency variability.
+
+Flow control requires a separate interpretation. The flow-control activity in
+Figure 2 occurs **only during the 50M-document loading step**, when documents
+are initially inserted. It is absent from the measured 4/8/16/32/64-thread
+YCSB sweeps. Flow control is therefore evidence of pressure during dataset
+creation, but it is **not a limiting factor in the reported benchmark results**.
+
+THP use is also much greater than in the small experiment. The MongoDB nodes
+reach approximately 6-7 GiB of `AnonHugePages` each. THP allocations are
+continuous, fallbacks remain rare, and collapse/split activity does not show a
+pathological storm. Docker therefore does not prevent THP from operating, and
+the measured benefit is not accompanied by an obvious THP allocation failure
+or compaction problem.
+
+The 50M-record workload continues to gain throughput through 64 client threads,
+unlike the small workload. That gain comes with rapidly increasing latency.
+The following table averages THP ON and OFF values to isolate the concurrency
+trade-off from the THP comparison:
+
+| Threads | Mean throughput | Mean average latency | Throughput vs. 16 | Latency vs. 16 | Operating interpretation |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 4 | 78.4 ops/s | 51.0 ms | -69.8% | -17.1% | Under-utilized |
+| 8 | 147.6 ops/s | 54.2 ms | -43.2% | -11.9% | Conservative |
+| **16** | **259.9 ops/s** | **61.6 ms** | **baseline** | **baseline** | **Sweet spot** |
+| 32 | 425.8 ops/s | 75.3 ms | +63.8% | +22.2% | Throughput-oriented |
+| 64 | 621.9 ops/s | 102.9 ms | +139.3% | +67.0% | Maximum throughput, high latency |
+
+At 32 and especially 64 threads, average latency rises much faster in absolute
+terms and P95 latency reaches roughly 494-536 ms and 671-718 ms respectively.
+Those settings remain useful when batch throughput is the priority, but they
+are no longer the most balanced choice. Across both datasets, **16 threads is
+the recommended sweet spot for a latency-sensitive or mixed workload**; 32 or
+64 threads should be selected deliberately only when additional throughput is
+worth the queueing and tail-latency cost.
+
+```mermaid
+flowchart LR
+    A["4-8: under-utilized"] --> B["16: balanced sweet spot"]
+    B --> C["32: throughput priority"]
+    C --> D["64: maximum throughput, highest latency"]
+```
+
+**Figure 3 — Concurrency operating regions observed on the RK1 cluster.**
+
+### Operations per Watt
+
+Power efficiency is one of the main reasons for evaluating MongoDB on the RK1
+platform. The dashboard therefore also divides the MongoDB server-side
+operation rate by total measured cluster power.
+
+**Figure 4 — MongoDB operations per second per watt during dataset loading and
+the THP OFF/ON benchmark campaigns.**
+
+![MongoDB operations per watt](./img/opsperwatt.png)
+
+| Observed phase | Approximate efficiency | Interpretation |
+| --- | ---: | --- |
+| 50M-document loading | ~200-550 MongoDB ops/s/W | Highest and most variable rate; sequential insertion is not comparable with the mixed benchmark |
+| Active benchmark sweeps | Typically ~180-320 MongoDB ops/s/W | Sustained useful operating range for the mixed READ/UPDATE/SCAN workload |
+| Between runs / idle | ~20-50 MongoDB ops/s/W | Background database activity divided by the cluster's baseline power draw |
+
+The two measured benchmark campaigns occupy broadly the same efficiency band,
+with short peaks approaching 400-450 MongoDB ops/s/W. This supports the main
+THP result: enabling THP does not radically change the platform's power
+profile, although the modest throughput improvement seen with the 50M dataset
+can translate into a correspondingly modest operations-per-watt improvement.
+
+This panel must not be read as YCSB operations per watt. It uses MongoDB
+server-side operations, and a single YCSB request—especially a SCAN—can produce
+multiple database operations. The metric is therefore most useful for relative
+comparison between otherwise identical runs, not as an absolute application
+throughput figure or as a direct comparison with unrelated database systems.
+
+The result nevertheless highlights the cluster's central value proposition:
+it sustains a real three-node MongoDB replica set, NVMe activity, replication,
+and monitoring within a compact power envelope. For a latency-sensitive mixed
+workload, the **16-thread sweet spot** remains the most balanced efficiency
+target; 32 and 64 threads should be used when maximizing completed work per
+watt is more important than minimizing response time.
+
+### Global Conclusion
+
+Together, the two datasets show that MongoDB 8.3.8 successfully and extensively
+uses Transparent Huge Pages on RK1/RK3588 ARM64, including when `mongod` runs
+inside Docker. Allocation fallbacks remain very low, so the comparison is not
+between an effective THP OFF configuration and a nominal-but-nonfunctional THP
+ON configuration.
+
+The performance effect depends on the working set:
+
+- With 500,000 documents, stabilized THP ON and OFF results are effectively
+  identical. Concurrency is the dominant factor, and 16 threads is the clear
+  sweet spot: moving to 32 or 64 threads adds almost no throughput while
+  average latency rises to approximately 2.2x and 4.8x the 16-thread value.
+- With 50 million documents and sustained WiredTiger cache pressure, repeated
+  runs 2-4 show a small but consistent THP benefit: approximately 1.6-7.1%
+  higher mean throughput, accompanied by lower mean and P95 total latency at
+  every tested concurrency level. Throughput continues to scale above 16
+  threads, but average and P95 latency rise sharply, making 16 threads the most
+  balanced operating point and 32-64 threads throughput-oriented choices.
+
+The evidence therefore supports a more nuanced conclusion than either "THP
+always improves MongoDB" or "THP has no effect":
+
+> **On this RK1 ARM64 cluster, THP is neutral for the small, relatively
+> cache-resident workload and modestly beneficial for the 50M-document
+> cache-pressure workload. Its value becomes visible when MongoDB uses a much
+> larger amount of THP-backed memory, but WiredTiger, NVMe I/O, replication,
+> and concurrency remain the dominant determinants of overall performance.
+> Across both datasets, 16 client threads provides the best overall compromise;
+> 32 and 64 threads trade substantially higher latency for additional
+> throughput, and on the small dataset provide almost no throughput gain at
+> all.**
+
+These findings are specific to this RK3588 hardware, MongoDB 8.3.8, custom
+Linux kernel, Docker deployment, WiredTiger configuration, NVMe subsystem,
+replica-set topology, and YCSB workload. They should not be generalized into a
+universal MongoDB THP rule. For this project, the MongoDB 8-recommended
+THP-enabled configuration remains the operational default, while THP OFF is
+retained for controlled A/B testing.
 
 ### Further Performance Optimizations Worth Testing
 
-- Switch mongo from docker to bare-metal. Doing this would provide a performance improvement by eliminating the docker overhead, but maybe also highlight a better THP behavior as docker might interfere on this setup too.
+- A/B test MongoDB in Docker versus bare metal to quantify the actual
+  containerization overhead on RK1. The current container has no resource
+  limits, `/data/db` is a host bind mount, and the metrics confirm that THP is
+  already active for the containerized `mongod`, so Docker is not expected to
+  prevent THP operation.
 - Benchmark `mongodb_wiredtiger_cache_size_gb` at `4`, `6`, and `8` on the
   16 GB RK1 nodes. The system currently defaults to `6` to keep more RAM
   available for Linux page cache, Docker overhead, and monitoring while still

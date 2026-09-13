@@ -1,0 +1,49 @@
+---
+# Reboot MongoDB data nodes one at a time and restart MongoDB after each boot.
+# Usage:
+#   ansible-playbook --ask-vault-pass -i inventory.yml reboot_mongodb_nodes.yml
+
+- name: Reboot MongoDB RK1 nodes and restart MongoDB
+  hosts: mongodb_data
+  become: yes
+  serial: 1
+  gather_facts: no
+  vars:
+    mongodb_port: 27017
+    mongodb_container_name: mongodb
+
+  tasks:
+    - name: Reboot MongoDB node
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        connect_timeout: 10
+        post_reboot_delay: 5
+
+    - name: Ensure MongoDB container is restarted
+      community.docker.docker_container:
+        name: "{{ mongodb_container_name }}"
+        state: started
+        restart: yes
+
+    - name: Wait for MongoDB after restart
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: "{{ mongodb_port }}"
+        delay: 5
+        timeout: 120
+
+    - name: Verify MongoDB container is running
+      community.docker.docker_container_info:
+        name: "{{ mongodb_container_name }}"
+      register: mongodb_container
+      until:
+        - mongodb_container.exists
+        - mongodb_container.container.State.Running | default(false)
+      retries: 12
+      delay: 5
+
+    - name: Report node restart status
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} rebooted and MongoDB container is running on
+          port {{ mongodb_port }}.

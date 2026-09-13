@@ -84,14 +84,13 @@
           echo 'max_ptes_none=unsupported-by-kernel'
         fi
         printf 'overcommit_memory='; cat /proc/sys/vm/overcommit_memory
+        docker exec mongodb mongosh --quiet \
+          -u '{{ vault_mongodb_admin_user }}' -p '{{ vault_mongodb_admin_password }}' \
+          --authenticationDatabase admin \
+          --eval "const extra = db.hostInfo().extra; print('db.hostInfo().extra.thp_enabled=' + extra.thp_enabled); print('db.hostInfo().extra.thp_defrag=' + extra.thp_defrag); print('db.hostInfo().extra.thp_max_ptes_none=' + extra.thp_max_ptes_none); print('db.hostInfo().extra.overcommit_memory=' + extra.overcommit_memory)"
       register: thp_settings
       changed_when: false
 
     - name: Report the active THP settings
       debug:
         var: thp_settings.stdout_lines
-    
-    - name: Reboot
-      ansible.builtin.reboot:
-        reboot_timeout: 600
-    
