@@ -1,7 +1,8 @@
 graph TD
-    A[Ubuntu 22.04 LTS] --> B[Docker Engine]
-    B --> C[MongoDB 8.x]
-    C --> D[Replica Set Config]
+    A[Ubuntu 22.04 LTS] --> B[Custom Kernel THP enabled]
+    B --> C[Docker Engine]
+    C --> D[MongoDB 8.x]
+    D --> E[Replica Set Config]
     
     E[Ansible] --> F[Automation Magic]
     F --> G[OS Optimization]

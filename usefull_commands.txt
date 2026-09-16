@@ -63,24 +63,24 @@ db.hostInfo().extra.overcommit_memory
 
 apb thp_disable.yml
 apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpoff-smallds-run1 -e ycsb_record_count=500000 -e load_dataset=true
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpoff-smallds-run2
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpoff-smallds-run3
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpoff-smallds-run4
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpoff-smallds-run2 -e ycsb_record_count=500000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpoff-smallds-run3 -e ycsb_record_count=500000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpoff-smallds-run4 -e ycsb_record_count=500000
 
 apb thp_enable.yml
 apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpon-smallds-run1 -e ycsb_record_count=500000 -e load_dataset=true
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpon-smallds-run2
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpon-smallds-run3
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpon-smallds-run4
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpon-smallds-run2 -e ycsb_record_count=500000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpon-smallds-run3 -e ycsb_record_count=500000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=thpon-smallds-run4 -e ycsb_record_count=500000
 
 apb thp_disable.yml
 apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpoff-largeds-run1 -e ycsb_record_count=50000000 -e load_dataset=true
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpoff-largeds-run2
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpoff-largeds-run3
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpoff-largeds-run4
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpoff-largeds-run2 -e ycsb_record_count=50000000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpoff-largeds-run3 -e ycsb_record_count=50000000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpoff-largeds-run4 -e ycsb_record_count=50000000
 
 apb thp_enable.yml
 apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run1 -e ycsb_record_count=50000000 -e load_dataset=true
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run2
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run3
-apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run4
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run2 -e ycsb_record_count=50000000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run3 -e ycsb_record_count=50000000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run4 -e ycsb_record_count=50000000

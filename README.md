@@ -7,6 +7,21 @@
 
 > *When you want to prove that ARM doesn't just mean your laptop battery lasts longer...*
 
+This README tells two connected stories:
+
+1. [Part I — The four-node ARM build](#part-i--the-four-node-arm-build): hardware,
+   deployment, PLGM load tests, power, and what makes the platform fun to run.
+2. [Part II — MongoDB memory-management deep dive](#part-ii--mongodb-memory-management-deep-dive):
+   THP, TCMalloc, WiredTiger, measurement method, and the small- and
+   large-dataset YCSB experiments.
+
+## Part I — The four-node ARM build
+
+Part I is about building and operating the machine. Part II asks the more
+interesting question: when this tiny replica set is busy, does the ARM64 memory
+stack actually help? Keep reading for the THP A/B tests—there is a surprise in
+how differently the two dataset sizes behave.
+
 ## What's This All About? 🤔
 
 Ever wondered what happens when you take four tiny ARM computers, stuff them into a mini-ITX sized board, and ask them to handle enterprise database workloads? Well, grab some coffee ☕ and step into the world of distributed ARM computing !
@@ -109,7 +124,12 @@ IP addresses or DNS names when connecting from outside the cluster network.
 
 ## Performance: David vs Goliath 📊
 
-### Benchmark Results (PLGM & YCSB):
+### Platform-capacity snapshots (PLGM and earlier YCSB workloads)
+
+These are **illustrative results from separate workload profiles**, not the
+controlled THP comparison in Part II. Do not compare their ops/s directly with
+the 500k/50M YCSB sweeps: operation mixes, acknowledgement settings, and
+measurement scopes differ.
 
 #### 🔥 The ARM Crusher (50% Write Workload)
 
@@ -127,14 +147,10 @@ IP addresses or DNS names when connecting from outside the cluster network.
 
 ![Performance Chart](./img/Grafana-TuringPi-MongoDB-Cluster.png)
 
-### Compared to Traditional x86:
-
-| Metric | TuringPi ARM | x86 Equivalent | ARM Advantage |
-| --- | --- | --- | --- |
-| **Power** | 40W | 1200W+ | 📉 95% less |
-| **Cost** | $1200 | $2500 | 💰 50% savings |
-| **Footprint** | Mini-ITX | 4x servers | 🏠 80% smaller |
-| **Cooling** | On-demand fans| Always On fans | 🔇 Silent |
+The important comparison here is within the RK1 platform: how much useful work
+it performs at its observed cluster power. No matched x86 benchmark was run,
+so x86 performance, savings, and cooling claims are not inferred from these
+snapshots.
 
 
 ## The Installation Journey 🗺️
@@ -232,8 +248,12 @@ scan/search profile for six hours (`21600` seconds) against the primary.
 
 ### Percona Load Generator MongoDB
 
-In addition to YCSB, some PLGM runs were also performed; some using the extreme mode.
-Consistent results were observed, just like the YCSB test suite. The performance limitation is coming from the memory, limited to 16G on our RK1 modules. For higher performance for specific workload types, the 32G model would probably help.
+PLGM is the **platform-capacity stress test** in this part of the story. The
+sample below is a three-hour configuration with 50 workers, running against
+the replica set. It demonstrates the cluster sustaining a varied operation
+mix; it does **not** isolate THP, TCMalloc, or WiredTiger effects. A 32 GB RK1
+could be an interesting follow-up for memory-heavy workloads, but its benefit
+has not been measured here.
 
 ```bash
 ubuntu@rk1-node4:~/rk1-ansible/plgm-workloads$ ./percona-load-generator-mongodb-4.6.0/bin/plgm config.std-3hours-50workers.yaml 
@@ -426,23 +446,34 @@ Deliberately powered off `rk1-node1` (primary):
 - **Data consistency**: Zero data loss
 - **Recovery**: Automatic rejoin/resync/take-over when node returned
 
-## The Economics: ARM's Secret Weapon 💰
+## Operations per Watt: The Little Board's Superpower ⚡
 
-### 3-Year Total Cost of Ownership:
+There is more to the platform than peak ops/s. The dashboard divides MongoDB
+server-side operations per second by the **measured total cluster power**. It
+is a useful live efficiency indicator while the three-node replica set, NVMe,
+and monitoring stack are all running.
 
-#### TuringPi ARM Cluster:
+![MongoDB operations per second per watt](./img/opsperwatt.png)
 
-- **Hardware**: $1620
-- **Power** (3 years @ $0.2/kWh): $210
-- **Total**: $1,830
+| Phase in this capture | Approximate MongoDB ops/s/W | Reading the graph |
+| --- | ---: | --- |
+| 50M-document loading | ~200–550 | Fast inserts; not comparable with the mixed benchmark |
+| Mixed benchmark campaigns | Typically ~180–320 | Useful sustained operating band, with short higher peaks |
+| Between runs | ~20–50 | Background activity divided by baseline cluster power |
 
-#### Equivalent x86 Setup:
+This is **MongoDB server operations**, not completed YCSB requests. A YCSB
+SCAN can generate multiple server operations, and the graph does not by itself
+rank thread counts or prove an ON/OFF THP energy advantage. Part II keeps the
+power story honest by separating application throughput, server-side
+operations, and latency.
 
-- **Hardware**: $2500
-- **Power** (3 years @ $0.2/kWh): $6300
-- **Total**: $8800
+## The Economics: Compact, Not a Matched x86 Shootout 💰
 
-**ARM Savings: 80% cost reduction** 🎉 Main driver is power on the long-run 
+The carrier board is mini-ITX sized, and the four RK1 modules provide three
+database members plus a dedicated control/monitoring node. The parts list
+below gives an indicative build budget; prices and power tariffs vary. We did
+not benchmark a like-for-like x86 system, so no quantified TCO or percentage
+savings against x86 are claimed here.
 
 ## Lessons Learned &amp; Pro Tips 🎓
 
@@ -462,15 +493,81 @@ Deliberately powered off `rk1-node1` (primary):
 2. **Memory Management**: Tune MongoDB for ARM's memory characteristics
 3. **NVMe Formatting**: XFS with specific mount options crucial for performance
 4. **Transparent Huge Pages**: Since MongoDB 8, THP is recommended. The issue is that the RK1 default kernel is not built with THP. Recompiling the kernel is mandatory and quite time consuming....
+5. **The 500k record-count trap**: An earlier 500,000-document load was followed
+   by reuse runs with the playbook's 50,000,000 default `recordcount`. YCSB
+   generated keys for documents that did not exist; one observed run recorded
+   3,876 successful READs and 490,899 failed READs. Those runs were discarded.
+   The playbook now checks the actual `usertable` document count against
+   `ycsb_record_count` before benchmarking and passes that value explicitly to
+   go-ycsb. Always specify `-e ycsb_database=ycsbsmall -e
+   ycsb_record_count=500000` for the 500k collection.
+6. **No reliable dataset drop in the bundled go-ycsb workflow**: A load against
+   an existing collection produced duplicate-key errors instead of a clean
+   replacement. When `load_dataset=true`, the playbook explicitly drops
+   MongoDB's `usertable` collection on the primary (with majority write
+   concern) **before** running go-ycsb `load`. This destroys the old test
+   collection; use it only when a fresh benchmark load is intended.
+7. **No effective `maxexecutiontime` in this go-ycsb build**: A very large
+   `operationcount` keeps the workload from ending early. The playbook uses
+   GNU `timeout` to end each `run` after 600 seconds, sending `SIGINT` and
+   allowing a 30-second shutdown grace period. The loader is a separate,
+   untimed preparation phase.
 
-### Performance Optimizations That Mattered:
+## Where the Cluster Fits ⭐
 
-In order to enable **Transparent Huge Pages** It is necessary to recompile the kernel with the right option. I hadn't compiled a kernel for the last 20 years .... it is still the same mess and menuconfig is still there 😆.
+This build is particularly interesting for edge computing, IoT ingestion,
+development replica sets, and teaching distributed systems. The RK1 is not a
+drop-in substitute for a high-end x86 server: analytics, legacy x86 software,
+and workloads that need maximum single-thread performance deserve separate
+capacity tests.
+
+## Your Turn: Build and Operate It 🚀
+
+The indicative parts list is one TuringPi 2 board, four 16 GB RK1 modules,
+four NVMe drives, heatsinks, an ATX PSU, cables, and a case. See the hardware
+table above for roles and specifications; confirm current prices and storage
+capacity before buying.
+
+```bash
+gh repo clone vthinsel/mongodb-TuringPI-rk1
+cd mongodb-TuringPI-rk1
+./setup_facility-node.sh
+ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yml
+ansible-playbook --ask-vault-pass -i inventory.yml setup_monitoring.yml
+```
+
+To power down or bring the cluster back, use `stop_platform.yml` and
+`start_platform.yml`. Authentication should remain enabled outside an isolated
+benchmark environment. Contributors are welcome to bring another workload,
+ARM platform, or real-world power measurement to the
+[GitHub repository](https://github.com/vthinsel/mongodb-TuringPI-rk1).
+
+### What Part I Proves—and What It Does Not
+
+Four compact RK1s can host a three-node MongoDB replica set plus its own
+facility node, survive deliberate primary failover, and run meaningful PLGM
+stress workloads within a small power envelope. The platform story does not
+tell us *why* performance changes when the working set grows. That is the
+question for Part II: does THP help once WiredTiger starts evicting pages,
+what is TCMalloc doing with memory, and where do extra YCSB threads stop
+paying for themselves?
+
+## Part II — MongoDB memory-management deep dive
+
+This part separates **mechanism** from **measurement**. It documents the
+kernel and allocator settings, the WiredTiger working sets, the controlled THP
+ON/OFF procedure, and results from the 500k and 50M datasets. Claims
+about causal THP effects are limited to what the repeated application-level
+measurements and telemetry support.
+
+### THP and TCMalloc deployment prerequisites
+
+Enabling **Transparent Huge Pages** on RK1 requires a kernel compiled with the
+appropriate option. The stock kernel does not expose the THP interface, so the
+custom kernel packages must be installed before enabling THP through Ansible.
 `setup_rk1cluster.yml` installs the two custom kernel packages from the repository
 root and holds them so the package upgrade cannot replace them. Both `.deb` files
 must be present beside the playbook before running the setup.
-
-Enjoy THP on RK1!
 
 ```bash
 # MongoDB 8 on ARM64: enable THP and upgraded TCMalloc per-CPU caches
@@ -516,7 +613,7 @@ zgrep CONFIG_TRANSPARENT_HUGEPAGE /proc/config.gz 2>/dev/null || \
 ls -ld /sys/kernel/mm/*transparent_hugepage
 ```
 
-## Evaluating Transparent Huge Pages on ARM64
+### Controlled THP evaluation on ARM64
 
 Starting with MongoDB 8, Transparent Huge Pages (THP) are recommended on
 supported Linux systems. Because the stock RK1 kernel does not expose the
@@ -553,6 +650,37 @@ writable overlay filesystem.
 | Target | Direct connection to the primary |
 | Measured write concern | `majority` |
 
+### Memory-stack interpretation: THP, TCMalloc, and WiredTiger
+
+The three layers answer different questions. THP is a **host-kernel page
+mapping** feature; TCMalloc manages `mongod`'s **user-space allocations**; and
+WiredTiger manages **database pages in its own cache**. Seeing activity in one
+layer does not establish a throughput benefit in another.
+
+| Layer | What it changes | Evidence examined | Limit of the evidence |
+| --- | --- | --- | --- |
+| THP | Backs eligible anonymous memory with larger pages | Host `AnonHugePages`, fault allocations/fallbacks, collapse/split telemetry | Host-level huge pages do not, by themselves, quantify exactly how many belong to `mongod` |
+| TCMalloc | Reuses memory in allocator caches and per-CPU structures | Allocated/free/unmapped memory and cache breakdown | Free memory retained by the allocator is not identical to WiredTiger cache occupancy |
+| WiredTiger | Reads, dirties, and evicts database pages | Cache fill, read/eviction rates, dirty ratio, eviction triggers | Cache churn and NVMe I/O can dominate translation-overhead improvements |
+
+The dashboard is interpreted as follows:
+
+- In the **500k** campaign, host `AnonHugePages` grows to roughly
+  4–5 GiB under THP ON, while cache fill rises over time without the sustained
+  high-rate NVMe reads seen in the 50M campaign. The TCMalloc free/unmapped and
+  cache panels evolve during both campaigns; they indicate allocator state
+  changes, not a standalone THP performance result.
+- In the **50M** campaign, THP-backed anonymous memory grows further, to
+  roughly 6–7 GiB per data node. WiredTiger cache sits around 80% full, with
+  sustained reads, eviction, and dirty-page cycles. These are distinct sources
+  of latency variability that must be considered alongside the YCSB numbers.
+
+The THP dashboard counters and `AnonHugePages` are host measurements. A
+process-specific `smaps_rollup`/`smaps` check for `mongod` would strengthen the
+attribution of huge-page coverage to MongoDB. No separate TCMalloc ON/OFF or
+WiredTiger-cache-size A/B test was performed here: THP is the controlled
+variable; the other two subsystems provide explanatory telemetry.
+
 ### Workload and Measurement Method
 
 Both datasets use the same mixed workload:
@@ -566,8 +694,10 @@ Both datasets use the same mixed workload:
 - 600 seconds per concurrency level
 
 The configured operation count is deliberately much larger than can be
-completed during a run. The playbook terminates each test after 600 seconds,
-making the comparison time-bound instead of operation-count-bound.
+completed during a run. The playbook uses an external timeout to terminate
+each test after 600 seconds, making the comparison time-bound instead of
+operation-count-bound. The go-ycsb limitation and shutdown behavior are
+documented in the Part I gotchas.
 
 Dataset creation is separate from the measured workload. Loading uses 32
 threads and `writeConcern=1` to reduce preparation time; measured runs use
@@ -611,6 +741,15 @@ The dataset load is opt-in. Load it once before the first comparison run with
 leave that option unset. Loading uses 32 client threads and primary-only write
 acknowledgement for faster preparation. The measured workload uses majority
 write concern and direct primary connections.
+
+For **every** reuse run, pass the intended `ycsb_record_count` and database
+explicitly (for example, `-e ycsb_database=ycsbsmall -e
+ycsb_record_count=500000`). The protected playbook compares the actual
+collection document count with the configured record count before the timed
+thread sweep and refuses to run on a mismatch. The attached summary CSVs
+still omit READ error counters, so raw thread logs remain necessary for a
+final request-validity audit. The record-count failure that motivated this
+safeguard is described in the Part I gotchas.
 
 ### Playbook Parameters
 
@@ -674,46 +813,55 @@ threads. The CSV is intended for further comparison or archival.
 
 ### Small Dataset: 500,000 Documents
 
-The small dataset provides a low-cache-pressure baseline. Its first measured
-run starts from a different cache and memory state immediately after loading,
-so it is treated as a warm-up/transient run. Stabilized repetitions are highly
-reproducible, even though THP ON run 2 is missing and is not reconstructed.
+The **500,000-document campaign** contains four repetitions under each THP
+setting. The load logs confirm `recordcount=500000` and report 500,000
+inserts. Run 1 is excluded consistently as the post-load transient/warm-up
+repetition; the tables use the arithmetic mean of the final CSV totals from
+runs 2-4.
 
 **Figure 1 — Small-dataset Grafana overview (THP OFF and THP ON campaigns).**
 
 ![MongoDB RK1 THP small-dataset benchmark](./img/ycsb_thpoff_thpon_smallds.png)
 
-| Threads | THP OFF | THP ON | Result |
-| ---: | ---: | ---: | --- |
-| 4 | ~125 ops/s | ~125 ops/s | No measurable difference |
-| 8 | ~187 ops/s | ~187 ops/s | No measurable difference |
-| 16 | ~215 ops/s | ~216 ops/s | No measurable difference |
-| 32 | ~218 ops/s | ~218 ops/s | No measurable difference |
-| 64 | ~216-217 ops/s | ~217 ops/s | No measurable difference |
+| Threads | THP OFF ops/s | THP ON ops/s | ON vs. OFF | Average total latency OFF/ON | P95 OFF/ON |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 561.3 | 560.2 | -0.2% | 7.10 / 7.12 ms | 32.02 / 32.09 ms |
+| 8 | 972.5 | 976.8 | +0.4% | 8.21 / 8.17 ms | 32.28 / 32.39 ms |
+| **16** | **1,287.3** | **1,292.0** | **+0.4%** | **12.41 / 12.37 ms** | **51.89 / 52.15 ms** |
+| 32 | 1,341.7 | 1,335.9 | -0.4% | 23.83 / 23.94 ms | 123.92 / 121.90 ms |
+| 64 | 1,335.0 | 1,335.8 | +0.1% | 47.91 / 47.89 ms | 304.38 / 297.21 ms |
 
-Differences between stabilized THP ON and OFF runs remain below approximately
-1%. THP is nevertheless demonstrably active: the enabled nodes reach roughly
-2.7-2.9 GiB of `AnonHugePages`, with very few allocation fallbacks and little
-collapse/split activity. The neutral result therefore cannot be explained by
-MongoDB failing to obtain huge pages.
+THP effects on throughput are mixed in sign and within roughly 0.5% across
+these stabilized repetitions. Neither average nor P95 total latency shows a
+consistent THP advantage. In Figure 1, THP-backed anonymous memory rises to
+roughly 4-5 GiB on the enabled nodes; allocation and collapse activity appears
+after THP is switched on, while flow control remains inactive. THP is thus
+visibly in use, but not associated with a material YCSB performance gain in
+this campaign.
 
-The small test exposes a very clear concurrency knee at **16 threads**.
-Throughput rises from about 125 ops/s at four threads to 215 ops/s at 16
-threads, then remains close to 217-218 ops/s. Average latency, however, rockets
-when concurrency is increased beyond that point.
+The summary CSVs contain completed-operation throughput and latency, **not
+READ success/error counters**. The load size and configured `recordcount` are
+aligned, but a complete request-validity audit requires the raw YCSB thread
+logs. Error-free READs should be confirmed there before treating these
+numbers as final.
 
-| Threads | Stabilized throughput | Average total latency | Change versus 16 threads |
-| ---: | ---: | ---: | --- |
-| 4 | ~125 ops/s | ~23 ms | Lower load |
-| 8 | ~187 ops/s | ~27 ms | Lower load |
-| **16** | **~215-216 ops/s** | **~49 ms** | **Best throughput/latency balance** |
-| 32 | ~218 ops/s | ~110 ms | ~1% more throughput, ~2.2x latency |
-| 64 | ~217 ops/s | ~232-239 ms | ~1% more throughput, ~4.8x latency |
+**Sixteen threads is the practical throughput/latency sweet spot for this
+small-dataset workload.** Averaging the THP OFF and ON results exposes the
+cost of pushing concurrency past the knee:
 
-The additional 32- and 64-thread concurrency is therefore counterproductive
-for this workload: it adds virtually no throughput while queueing and average
-latency increase sharply. **Sixteen threads is the practical sweet spot**, not
-merely an approximate knee in the curve.
+| Threads | Mean throughput | Mean average latency | Throughput vs. 16 | Latency vs. 16 | Mean P95 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 560.8 ops/s | 7.11 ms | -56.5% | -42.6% | 32.06 ms |
+| 8 | 974.7 ops/s | 8.19 ms | -24.4% | -33.9% | 32.34 ms |
+| **16** | **1,289.6 ops/s** | **12.39 ms** | **baseline** | **baseline** | **52.02 ms** |
+| 32 | 1,338.8 ops/s | 23.89 ms | +3.8% | ~1.9x | 122.91 ms |
+| 64 | 1,335.4 ops/s | 47.90 ms | +3.5% | ~3.9x | 300.80 ms |
+
+From 16 to 32 threads, throughput rises by only 3.8% while mean latency
+almost doubles; at 64 threads throughput slips slightly below the 32-thread
+level while mean latency nearly quadruples relative to 16 threads. P95 also
+rises by roughly 2.4x and 5.8x respectively. **The 32- and 64-thread settings
+are poor latency trade-offs for this specific small-dataset profile.**
 
 ### Large Dataset: 50 Million Documents
 
@@ -783,55 +931,14 @@ trade-off from the THP comparison:
 At 32 and especially 64 threads, average latency rises much faster in absolute
 terms and P95 latency reaches roughly 494-536 ms and 671-718 ms respectively.
 Those settings remain useful when batch throughput is the priority, but they
-are no longer the most balanced choice. Across both datasets, **16 threads is
-the recommended sweet spot for a latency-sensitive or mixed workload**; 32 or
-64 threads should be selected deliberately only when additional throughput is
-worth the queueing and tail-latency cost.
+are no longer the most balanced choice. **Sixteen threads is a reasonable
+latency-conscious operating point for this large-dataset profile, but not its sweet spot**: unlike the small dataset, 32 and 64 threads provide
+substantial additional throughput. Select those higher settings when the
+extra completed work justifies the measured latency cost.
 
-```mermaid
-flowchart LR
-    A["4-8: under-utilized"] --> B["16: balanced sweet spot"]
-    B --> C["32: throughput priority"]
-    C --> D["64: maximum throughput, highest latency"]
-```
+![Threads](./img/threads.png)
 
 **Figure 3 — Concurrency operating regions observed on the RK1 cluster.**
-
-### Operations per Watt
-
-Power efficiency is one of the main reasons for evaluating MongoDB on the RK1
-platform. The dashboard therefore also divides the MongoDB server-side
-operation rate by total measured cluster power.
-
-**Figure 4 — MongoDB operations per second per watt during dataset loading and
-the THP OFF/ON benchmark campaigns.**
-
-![MongoDB operations per watt](./img/opsperwatt.png)
-
-| Observed phase | Approximate efficiency | Interpretation |
-| --- | ---: | --- |
-| 50M-document loading | ~200-550 MongoDB ops/s/W | Highest and most variable rate; sequential insertion is not comparable with the mixed benchmark |
-| Active benchmark sweeps | Typically ~180-320 MongoDB ops/s/W | Sustained useful operating range for the mixed READ/UPDATE/SCAN workload |
-| Between runs / idle | ~20-50 MongoDB ops/s/W | Background database activity divided by the cluster's baseline power draw |
-
-The two measured benchmark campaigns occupy broadly the same efficiency band,
-with short peaks approaching 400-450 MongoDB ops/s/W. This supports the main
-THP result: enabling THP does not radically change the platform's power
-profile, although the modest throughput improvement seen with the 50M dataset
-can translate into a correspondingly modest operations-per-watt improvement.
-
-This panel must not be read as YCSB operations per watt. It uses MongoDB
-server-side operations, and a single YCSB request—especially a SCAN—can produce
-multiple database operations. The metric is therefore most useful for relative
-comparison between otherwise identical runs, not as an absolute application
-throughput figure or as a direct comparison with unrelated database systems.
-
-The result nevertheless highlights the cluster's central value proposition:
-it sustains a real three-node MongoDB replica set, NVMe activity, replication,
-and monitoring within a compact power envelope. For a latency-sensitive mixed
-workload, the **16-thread sweet spot** remains the most balanced efficiency
-target; 32 and 64 threads should be used when maximizing completed work per
-watt is more important than minimizing response time.
 
 ### Global Conclusion
 
@@ -843,10 +950,12 @@ ON configuration.
 
 The performance effect depends on the working set:
 
-- With 500,000 documents, stabilized THP ON and OFF results are effectively
-  identical. Concurrency is the dominant factor, and 16 threads is the clear
-  sweet spot: moving to 32 or 64 threads adds almost no throughput while
-  average latency rises to approximately 2.2x and 4.8x the 16-thread value.
+- With the 500,000-document workload, THP ON and OFF differ by less
+  than approximately 0.5% in mean throughput across the tested thread counts.
+  The 16-thread knee is clear: moving to 32 or 64 adds only 3.8% or 3.5%
+  throughput on average, while average total latency rises by roughly 1.9x or
+  3.9x, respectively. Raw READ error counters should be checked before final
+  publication of this new campaign.
 - With 50 million documents and sustained WiredTiger cache pressure, repeated
   runs 2-4 show a small but consistent THP benefit: approximately 1.6-7.1%
   higher mean throughput, accompanied by lower mean and P95 total latency at
@@ -859,13 +968,19 @@ always improves MongoDB" or "THP has no effect":
 
 > **On this RK1 ARM64 cluster, THP is neutral for the small, relatively
 > cache-resident workload and modestly beneficial for the 50M-document
-> cache-pressure workload. Its value becomes visible when MongoDB uses a much
-> larger amount of THP-backed memory, but WiredTiger, NVMe I/O, replication,
+> cache-pressure workload in these repeated runs. The larger workload shows
+> both greater THP-backed memory and higher mean throughput with THP ON;
+> these measurements do not isolate the memory-coverage increase as the cause.
+> WiredTiger, NVMe I/O, replication,
 > and concurrency remain the dominant determinants of overall performance.
-> Across both datasets, 16 client threads provides the best overall compromise;
-> 32 and 64 threads trade substantially higher latency for additional
-> throughput, and on the small dataset provide almost no throughput gain at
-> all.**
+> Sixteen client threads is the small-dataset throughput/latency sweet spot;
+> on the large dataset, 32 and 64 threads can offer substantial additional
+> throughput, but also increase average and P95 latency.**
+
+The operations-per-watt chart in Part I describes the platform's power
+envelope, but it is based on **server-side** MongoDB operations rather than
+YCSB requests. A per-thread and time-aligned power comparison would be
+required to establish whether THP improves completed YCSB work per watt.
 
 These findings are specific to this RK3588 hardware, MongoDB 8.3.8, custom
 Linux kernel, Docker deployment, WiredTiger configuration, NVMe subsystem,
@@ -891,134 +1006,9 @@ retained for controlled A/B testing.
 - Consider pinning the `mongod` container to the RK3588 Cortex-A76 cores during
   write-heavy benchmarks. The big.LITTLE topology can otherwise mix
   latency-sensitive database threads with background tasks.
-- Publish two benchmark profiles instead of one: the current
-  `directConnection=true` primary-only path for peak throughput and a
-  replica-set-aware URI with stronger write concern to show the durability cost
-  of production-like settings.
+- Compare the current direct-primary workload with a replica-set-aware client
+  profile to quantify driver-routing and failover behavior. The present
+  measured workload already uses `writeConcern=majority`.
 - Pin the monitoring containers away from `:latest` before long benchmark
   campaigns so exporter behavior and Prometheus/Grafana feature changes do not
   skew repeatability.
-
-## Use Cases: Where This Shines ⭐
-
-### Perfect For:
-
-- **Edge Computing**: Data centers in remote locations
-- **Development Clusters**: Cost-effective MongoDB testing
-- **IoT Data Collection**: High-efficiency data ingestion with robustness built-in
-- **Educational Labs**: Teaching distributed systems
-- **Proof of Concepts**: Demonstrating ARM viability
-
-### Maybe Not For:
-
-- **Heavy Analytics**: x86 still wins on pure CPU crunch
-- **Legacy Apps**: Software that assumes x86 architecture
-- **Maximum Throughput**: When you need absolute peak performance
-
-## Future Roadmap 🛣️
-
-### Phase 2 Enhancements:
-
-- [ ] **Kubernetes Integration**: Container orchestration layer
-- [ ] **Automatic Scaling**: Dynamic node addition/removal to play with NVIDIA modules if required
-- [ ] **ML Workloads**: TensorFlow Lite on ARM using the NPU embedded in the ARM core.
-- [ ] **Multi-Cluster**: Federation across TuringPi units
-- [ ] **Advanced Monitoring**: AI-powered performance analysis
-
-### Phase 3 (The Dream):
-
-- [ ] **5G Integration**: Edge deployment with cellular connectivity
-- [ ] **Solar Power**: Complete off-grid operation
-- [ ] **Satellite Connectivity**: MongoDB in space! 🚀
-
-## The Verdict: ARM Has Arrived! 🏆
-
-After some days of testing, playing, optimizing, discussing, and pushing this cluster to its limits (including a few crashes with the PLGM raw injector), here's our honest assessment:
-
-### The Good 👍:
-
-- **Performance**: Exceeded expectations for regular database workloads
-- **Efficiency**: Power consumption is revolutionary. Less than a traditional light bulb while still delivering a real replica set.
-- **Reliability**: Solid uptime and failover capabilities
-- **Cost**: Dramatically lower TCO than x86
-- **Fun Factor**: Building this was genuinely enjoyable!
-
-### The Reality Check 🤔:
-
-- **Software Ecosystem**: Still catching up to x86
-- **Single-Thread Performance**: x86 wins on legacy workloads
-- **Memory Bandwidth**: Some workloads need more than ARM provides
-
-### Overall Rating: 8.5/10 ⭐
-
-**TL;DR**: ARM-based database clusters are ready for prime time. The TuringPi + MongoDB combo delivers impressive performance per watt, costs significantly less than x86 alternatives.
-
-## Getting Started: Your Turn! 🚀
-
-Want to build your own TuringPi MongoDB cluster? Here's everything you need:
-
-### Shopping List 🛒:
-Prices 
-```markdown
-- 1x TuringPi 2 board ($280 )
-- 4x RK1 16GB modules (~$300 each)
-- 4x 400GB NVMe SSDs (~$30 each) 
-- 4x Heatsinks (~$10 each)
-- 1x ATX PSU (~$50)
-- Networking cables and case (~$50)
-
-Total: ~1620$ (was half in 2023, but prices are rising due to global chip shortage)
-```
-
-### Quick Start Commands:
-
-```bash
-# Clone our repository
-gh repo clone vthinsel/mongodb-TuringPI-rk1
-
-# Run the setup on rk1-node4 (the facility node with Ansible and management tools)
-cd <your-repo>
-cat README.md
-
-# Deploy in under 30 minutes
-sh setup_facility-node.sh
-ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yml
-ansible-playbook --ask-vault-pass -i inventory.yml setup_monitoring.yml
-
-# Optional, non-production only: allow unauthenticated MongoDB access for tests
-ansible-playbook --ask-vault-pass -i inventory.yml disable_mongodb_auth.yml -e disable_mongodb_auth=true
-
-# Power the whole rig down/up (mongod + monitoring + BMC power) when not in use
-ansible-playbook --ask-vault-pass -i inventory.yml stop_platform.yml
-ansible-playbook --ask-vault-pass -i inventory.yml start_platform.yml
-```
-
-## Join the ARM Revolution! 🤝
-
-This project is **open source** and we'd love your contributions:
-
-- 🐛 **Bug Reports**: Found an issue? Let us know!
-- 💡 **Feature Ideas**: What should we build next?
-- 📚 **Documentation**: Help others learn from your experience
-- 🧪 **Testing**: Try it on different ARM platforms. Run a specific workload ? Contact me.
-
-### Connect With Us:
-
-- **GitHub**: [turingpi-mongodb-cluster](https://github.com/vthinsel/mongodb-TuringPI-rk1)
-- **LinkedIn**: Share your results with #TuringPi #MongoDB #ARM
-
----
-
-## Final Thoughts 💭
-
-The future of computing is **distributed**, **efficient**, and **ARM-powered**. What we've built here isn't just a MongoDB cluster - it's a statement that the traditional boundaries of what's possible with ARM architecture are rapidly disappearing.
-
-From **edge computing** to **data centers**, from **IoT gateways** to **development clusters**, ARM is proving that **performance per watt** is the metric that matters most in our increasingly connected world.
-
-So grab a TuringPi, fire up some RK1 modules, and join us in building the future - one ARM cluster at a time! 🚀
-
----
-
-*Built by ARM enthusiasts who believe that the best database clusters come in small, power-efficient packages.*
-
-**P.S.** - If you build this setup, we'd love to see photos! Tag us on social media and show off your ARM-powered MongoDB cluster. The geekier the better! 🤓

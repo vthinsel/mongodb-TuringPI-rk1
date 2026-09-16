@@ -15,6 +15,7 @@
     ycsb_workload_file: /tmp/workload-rk1-cache-pressure
     ycsb_database: ycsb
     #ycsb_database: ycsbsmall
+    ycsb_collection: usertable
     ycsb_primary_host: rk1-node1
     ycsb_primary_port: 27017
     ycsb_record_count: 50000000
@@ -64,6 +65,16 @@
         port: "{{ ycsb_primary_port }}"
         timeout: 30
 
+    - name: Validate dataset parameters
+      ansible.builtin.assert:
+        that:
+          - ycsb_database | length > 0
+          - ycsb_collection | length > 0
+          - ycsb_record_count | int > 0
+        fail_msg: >-
+          ycsb_database and ycsb_collection must be non-empty, and
+          ycsb_record_count must be a positive integer.
+
     - name: Verify Python report dependency
       ansible.builtin.command:
         argv:
@@ -98,7 +109,6 @@
       until: ycsb_primary_check.stdout | trim == 'true'
       retries: 60
       delay: 5
-      when: load_dataset | bool
 
   tasks:
     - name: Create YCSB results directory
@@ -147,7 +157,7 @@
           - >-
             const targetDb = db.getSiblingDB("{{ ycsb_database }}");
             const result = targetDb.runCommand({
-              drop: "usertable",
+              drop: "{{ ycsb_collection }}",
               writeConcern: { w: "majority" }
             });
             if (!result.ok && result.codeName !== "NamespaceNotFound") {
@@ -203,6 +213,55 @@
         ('Count: ' ~ (ycsb_record_count | string)) not in (ycsb_load.stdout | default(''))
       when: load_dataset | bool
 
+    # This check is deliberately unconditional. It protects reused datasets as
+    # well as newly loaded ones from a recordcount mismatch. YCSB generates keys
+    # from recordcount, so benchmarking 500k documents with recordcount=50M
+    # would otherwise turn almost every READ into a failed lookup.
+    - name: Read the actual YCSB collection document count
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - mongodb
+          - mongosh
+          - --quiet
+          - --eval
+          - >-
+            const targetDb = db.getSiblingDB("{{ ycsb_database }}");
+            const result = targetDb.runCommand({
+              collStats: "{{ ycsb_collection }}",
+              scale: 1
+            });
+            const count = Number(result.count);
+            if (!result.ok || !Number.isSafeInteger(count) || count < 0) {
+              printjson(result);
+              quit(2);
+            }
+            print(count);
+      delegate_to: "{{ ycsb_primary_host }}"
+      register: ycsb_collection_count
+      changed_when: false
+      failed_when: false
+
+    - name: Require the configured and actual YCSB record counts to match
+      ansible.builtin.assert:
+        that:
+          - ycsb_collection_count.rc == 0
+          - (ycsb_collection_count.stdout | trim) is match('^[0-9]+$')
+          - (ycsb_collection_count.stdout | trim | int) == (ycsb_record_count | int)
+        fail_msg: >-
+          Refusing to run an invalid benchmark. MongoDB collection
+          {{ ycsb_database }}.{{ ycsb_collection }} contains
+          {{ ycsb_collection_count.stdout | default('an unreadable number') | trim }}
+          documents, but ycsb_record_count is {{ ycsb_record_count }}.
+          Either reuse the matching value with
+          -e ycsb_record_count={{ ycsb_collection_count.stdout | default('ACTUAL_COUNT') | trim }}
+          or reload the collection with -e load_dataset=true and the intended
+          -e ycsb_record_count=VALUE.
+        success_msg: >-
+          Dataset validation passed: {{ ycsb_database }}.{{ ycsb_collection }}
+          contains exactly {{ ycsb_record_count }} documents.
+
     - name: Run cache-pressure workload across the thread sweep
       ansible.builtin.command:
         argv:
@@ -232,6 +291,8 @@
           - mongodb
           - -P
           - /workload
+          - -p
+          - "recordcount={{ ycsb_record_count }}"
           - -p
           - "mongodb.url=mongodb://{{ ycsb_primary_host }}:{{ ycsb_primary_port }}/{{ ycsb_database }}?directConnection=true"
           - -p
