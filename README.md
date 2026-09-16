@@ -174,6 +174,9 @@ gh repo clone vthinsel/mongodb-TuringPI-rk1
 # Run on rk1-node4 (facility/control node): installs & validates Ansible, then sets up SSH keys
 ./setup_facility-node.sh
 
+# Configure RK1 pre-requisites : NVMe , DNS resolution, custom kernel, common packages, etc.
+ansible-playbook --ask-vault-pass -i inventory.yml setup_rk1cluster.yml
+
 # Deploy MongoDB cluster
 ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yml
 
@@ -181,13 +184,10 @@ ansible-playbook --ask-vault-pass -i inventory.yml deploy_mongodb_cluster.yml
 # Run this only on non-production clusters; it disables authentication entirely.
 ansible-playbook --ask-vault-pass -i inventory.yml disable_mongodb_auth.yml -e disable_mongodb_auth=true
 
-# Update all RK1 nodes (including rk1-node4), one node at a time
-ansible-playbook --ask-vault-pass -i inventory.yml update_rk1cluster.yml -e reboot=true
-
 # Set up monitoring
 ansible-playbook --ask-vault-pass -i inventory.yml setup_monitoring.yml
 
-# Run the first unauthenticated mixed YCSB test against the primary
+# Run the first unauthenticated mixed YCSB test against the primary with a very small dataset of 50k documents
 ansible-playbook --ask-vault-pass -i inventory.yml ycsb_load_test.yml -e confirm_unauthenticated_ycsb=true
 
 ```
@@ -220,31 +220,20 @@ the native ARM64 `/go-ycsb` binary directly. Note that the results can't be dire
 - 30% updates
 - 20% scans/searches
 
-The default test loads 100,000 records and runs 100,000 operations with four
-threads. Adjust the workload without editing the playbook:
+The default test loads 50,000 records and runs operations for 5 minutes using 16 threads. Adjust the workload without editing the playbook:
 
 ```bash
 ansible-playbook --ask-vault-pass -i inventory.yml ycsb_load_test.yml \
   -e confirm_unauthenticated_ycsb=true \
   -e ycsb_record_count=1000000 \
-  -e ycsb_operation_count=500000 \
-  -e ycsb_threads=8
+  -e ycsb_run_duration_seconds=3600 \
+  -e ycsb_threads=32
 ```
 
 This test is intended only for isolated, non-production use. The confirmation
 flag is required, and the direct connection keeps operations on the primary. This quick and simple test doesn't hit memory limits, thus wiredtiger settings don't come into the game as there is no pressure, we are in-memory workload scenario.
 
-### Six-Hour YCSB Endurance Test
-
-Run the separate endurance playbook after the unauthenticated cluster is ready:
-
-```bash
-ansible-playbook --ask-vault-pass -i inventory.yml ycsb_endurance_test.yml \
-  -e confirm_unauthenticated_ycsb=true
-```
-
-It loads the dataset once, then runs the same 50% read, 30% update, and 20%
-scan/search profile for six hours (`21600` seconds) against the primary.
+By increasing the run duration, you can easily perform endurance testing. It is really up to you to tweak the variables, and adjust the playbook if needed.
 
 ### Percona Load Generator MongoDB
 
@@ -302,6 +291,9 @@ Warning: Queries path 'resources/queries' not found. Using embedded default.json
  00:11   |     4,831 |   2,632 |   1,630 |       0 |     387 |     182 |      0 |     0
 
 ```
+
+In addition you will find some other plgm workloads, including a *maxperf* one that will push the cluster to its limits but reflects in no way a production like environment.
+
 ### Updating the RK1 Cluster
 
 Use `update_rk1cluster.yml` to refresh the OS and container images on all cluster nodes, including the control node `rk1-node4`. The playbook runs one host at a time (`serial: 1`) to avoid rolling reboots or package conflicts during the upgrade window.

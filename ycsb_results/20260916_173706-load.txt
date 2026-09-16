@@ -1,0 +1,29 @@
+Using request distribution 'zipfian' a keyrange of [0 49999]
+Connected to MongoDB! Using database "ycsb"
+***************** properties *****************
+"scanproportion"="0.15"
+"insertproportion"="0.0"
+"threadcount"="32"
+"updateproportion"="0.25"
+"writeallfields"="True"
+"scanlengthdistribution"="uniform"
+"mongodb.write_concern"="1"
+"recordcount"="50000"
+"workload"="site.ycsb.workloads.CoreWorkload"
+"requestdistribution"="zipfian"
+"command"="load"
+"operationcount"="50000000000"
+"mongodb.url"="mongodb://rk1-node1:27017/ycsb?directConnection=true"
+"readmodifywriteproportion"="0.0"
+"dotransactions"="false"
+"readallfields"="True"
+"table"="usertable"
+"fieldcount"="10"
+"fieldlength"="100"
+"readproportion"="0.6"
+"insertcount"="50000"
+**********************************************
+**********************************************
+Run finished, takes 5.745709093s
+INSERT - Takes(s): 5.6, Count: 50000, OPS: 8872.3, Avg(us): 3463, Min(us): 593, Max(us): 209407, 50th(us): 2925, 90th(us): 3937, 95th(us): 5135, 99th(us): 11887, 99.9th(us): 106751, 99.99th(us): 133887
+TOTAL  - Takes(s): 5.6, Count: 50000, OPS: 8871.7, Avg(us): 3463, Min(us): 593, Max(us): 209407, 50th(us): 2925, 90th(us): 3937, 95th(us): 5135, 99th(us): 11887, 99.9th(us): 106751, 99.99th(us): 133887

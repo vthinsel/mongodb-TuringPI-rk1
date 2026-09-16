@@ -1,0 +1,354 @@
+---
+# YCSB cache-pressure test against the unauthenticated MongoDB primary.
+# The 50 million records exceed the 6 GB WiredTiger cache before compression.
+# Usage:
+#   ansible-playbook --ask-vault-pass -i inventory.yml ycsb_cache_pressure_test.yml \
+#     -e confirm_unauthenticated_ycsb=true -e load_dataset=true \
+#     -e file_prefix=cache-pressure-thp-on
+
+- name: Run YCSB WiredTiger cache-pressure test
+  hosts: control
+  become: yes
+  gather_facts: no
+  vars:
+    ycsb_image: redis/go-ycsb@sha256:1a61a25f285b8f31686634d4e37668071b4cfe9912cd8f2cfb416d76b4fd567f
+    ycsb_workload_file: /tmp/workload-rk1-cache-pressure
+    ycsb_database: ycsb
+    #ycsb_database: ycsbsmall
+    ycsb_collection: usertable
+    ycsb_primary_host: rk1-node1
+    ycsb_primary_port: 27017
+    ycsb_record_count: 50000
+    ycsb_operation_count: 50000000000 #very high to ensure maxexecutiontime is reached before operationcount
+    #Workaround for ycsb-go not implementing maxexecutiontime, we will use timeout to limit the test duration     
+    ycsb_run_duration_seconds: 300
+    ycsb_shutdown_grace_seconds: 30
+    load_dataset: true
+    file_prefix: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+    ycsb_results_dir: "{{ playbook_dir }}/ycsb_results"
+    ycsb_load_threads: 32
+    ycsb_load_write_concern: 1
+    ycsb_cache_pressure_write_concern: 1
+    ycsb_threads_sweep:
+      - 16
+    ycsb_workload:
+      fieldcount: 10
+      fieldlength: 100
+      readallfields: true
+      writeallfields: true
+      readproportion: 0.60
+      updateproportion: 0.25
+      scanproportion: 0.15
+      insertproportion: 0.00
+      readmodifywriteproportion: 0.00
+      requestdistribution: zipfian
+      scanlengthdistribution: uniform
+
+  pre_tasks:
+    - name: Require explicit acknowledgement of unauthenticated testing
+      ansible.builtin.assert:
+        that:
+          - confirm_unauthenticated_ycsb | default(false) | bool
+        fail_msg: >-
+          This test sends unauthenticated traffic to MongoDB. Re-run with
+          -e confirm_unauthenticated_ycsb=true only on an isolated test cluster.
+
+    - name: Verify primary is reachable
+      ansible.builtin.wait_for:
+        host: "{{ ycsb_primary_host }}"
+        port: "{{ ycsb_primary_port }}"
+        timeout: 30
+
+    - name: Validate dataset parameters
+      ansible.builtin.assert:
+        that:
+          - ycsb_database | length > 0
+          - ycsb_collection | length > 0
+          - ycsb_record_count | int > 0
+        fail_msg: >-
+          ycsb_database and ycsb_collection must be non-empty, and
+          ycsb_record_count must be a positive integer.
+
+    - name: Verify Python report dependency
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - import matplotlib
+      changed_when: false
+      failed_when: false
+      register: matplotlib_check
+
+    - name: Require Python report dependency
+      ansible.builtin.assert:
+        that:
+          - matplotlib_check.rc == 0
+        fail_msg: >-
+          Matplotlib is missing from python3 on the control node. Run
+          ./setup_facility-node.sh on rk1-node4, then rerun this playbook.
+
+    - name: Wait for the YCSB target node to become primary
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - mongodb
+          - mongosh
+          - --quiet
+          - --eval
+          - print(db.hello().isWritablePrimary)
+      delegate_to: "{{ ycsb_primary_host }}"
+      register: ycsb_primary_check
+      changed_when: false
+      until: ycsb_primary_check.stdout | trim == 'true'
+      retries: 60
+      delay: 5
+
+  tasks:
+    - name: Create YCSB results directory
+      ansible.builtin.file:
+        path: "{{ ycsb_results_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Pull the YCSB container image
+      ansible.builtin.command:
+        argv:
+          - docker
+          - pull
+          - "{{ ycsb_image }}"
+      changed_when: true
+
+    - name: Create cache-pressure workload definition
+      ansible.builtin.copy:
+        dest: "{{ ycsb_workload_file }}"
+        mode: '0644'
+        content: |
+          workload=site.ycsb.workloads.CoreWorkload
+          recordcount={{ ycsb_record_count }}
+          operationcount={{ ycsb_operation_count }}
+          fieldcount={{ ycsb_workload.fieldcount }}
+          fieldlength={{ ycsb_workload.fieldlength }}
+          readallfields={{ ycsb_workload.readallfields }}
+          writeallfields={{ ycsb_workload.writeallfields }}
+          readproportion={{ ycsb_workload.readproportion }}
+          updateproportion={{ ycsb_workload.updateproportion }}
+          scanproportion={{ ycsb_workload.scanproportion }}
+          insertproportion={{ ycsb_workload.insertproportion }}
+          readmodifywriteproportion={{ ycsb_workload.readmodifywriteproportion }}
+          requestdistribution={{ ycsb_workload.requestdistribution }}
+          scanlengthdistribution={{ ycsb_workload.scanlengthdistribution }}
+
+    - name: Drop the existing YCSB collection before loading
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - mongodb
+          - mongosh
+          - --quiet
+          - --eval
+          - >-
+            const targetDb = db.getSiblingDB("{{ ycsb_database }}");
+            const result = targetDb.runCommand({
+              drop: "{{ ycsb_collection }}",
+              writeConcern: { w: "majority" }
+            });
+            if (!result.ok && result.codeName !== "NamespaceNotFound") {
+              printjson(result);
+              quit(1);
+            }
+            printjson(result);
+      delegate_to: "{{ ycsb_primary_host }}"
+      register: ycsb_drop
+      changed_when: true
+
+    - name: Load cache-pressure YCSB dataset into the primary
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - --rm
+          - --entrypoint
+          - /go-ycsb
+          - --network
+          - host
+          - --add-host
+          - "rk1-node1:{{ hostvars['rk1-node1'].ansible_host }}"
+          - --add-host
+          - "rk1-node2:{{ hostvars['rk1-node2'].ansible_host }}"
+          - --add-host
+          - "rk1-node3:{{ hostvars['rk1-node3'].ansible_host }}"
+          - --add-host
+          - "rk1-node4:{{ hostvars['rk1-node4'].ansible_host }}"
+          - --volume
+          - "{{ ycsb_workload_file }}:/workload:ro"
+          - "{{ ycsb_image }}"
+          - load
+          - mongodb
+          - -P
+          - /workload
+          - -p
+          - "mongodb.url=mongodb://{{ ycsb_primary_host }}:{{ ycsb_primary_port }}/{{ ycsb_database }}?directConnection=true"
+          - -p
+          - "recordcount={{ ycsb_record_count }}"
+          - -p
+          - "insertcount={{ ycsb_record_count }}"
+          - -p
+          - "threadcount={{ ycsb_load_threads }}"
+          - -p
+          - "mongodb.write_concern={{ ycsb_load_write_concern }}"
+      register: ycsb_load
+      changed_when: true
+      failed_when: >-
+        ycsb_load.rc != 0 or
+        'Run finished' not in (ycsb_load.stdout | default('')) or
+        ('Count: ' ~ (ycsb_record_count | string)) not in (ycsb_load.stdout | default(''))
+
+    # This check is deliberately unconditional. It protects reused datasets as
+    # well as newly loaded ones from a recordcount mismatch. YCSB generates keys
+    # from recordcount, so benchmarking 500k documents with recordcount=50M
+    # would otherwise turn almost every READ into a failed lookup.
+    - name: Read the actual YCSB collection document count
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - mongodb
+          - mongosh
+          - --quiet
+          - --eval
+          - >-
+            const targetDb = db.getSiblingDB("{{ ycsb_database }}");
+            const result = targetDb.runCommand({
+              collStats: "{{ ycsb_collection }}",
+              scale: 1
+            });
+            const count = Number(result.count);
+            if (!result.ok || !Number.isSafeInteger(count) || count < 0) {
+              printjson(result);
+              quit(2);
+            }
+            print(count);
+      delegate_to: "{{ ycsb_primary_host }}"
+      register: ycsb_collection_count
+      changed_when: false
+      failed_when: false
+
+    - name: Require the configured and actual YCSB record counts to match
+      ansible.builtin.assert:
+        that:
+          - ycsb_collection_count.rc == 0
+          - (ycsb_collection_count.stdout | trim) is match('^[0-9]+$')
+          - (ycsb_collection_count.stdout | trim | int) == (ycsb_record_count | int)
+        fail_msg: >-
+          Refusing to run an invalid benchmark. MongoDB collection
+          {{ ycsb_database }}.{{ ycsb_collection }} contains
+          {{ ycsb_collection_count.stdout | default('an unreadable number') | trim }}
+          documents, but ycsb_record_count is {{ ycsb_record_count }}.
+          Either reuse the matching value with
+          -e ycsb_record_count={{ ycsb_collection_count.stdout | default('ACTUAL_COUNT') | trim }}
+          or reload the collection with -e load_dataset=true and the intended
+          -e ycsb_record_count=VALUE.
+        success_msg: >-
+          Dataset validation passed: {{ ycsb_database }}.{{ ycsb_collection }}
+          contains exactly {{ ycsb_record_count }} documents.
+
+    - name: Run cache-pressure workload across the thread sweep
+      ansible.builtin.command:
+        argv:
+          - timeout
+          - --signal=INT
+          - "--kill-after={{ ycsb_shutdown_grace_seconds }}s"
+          - "{{ ycsb_run_duration_seconds }}s"
+          - docker
+          - run
+          - --rm
+          - --entrypoint
+          - /go-ycsb
+          - --network
+          - host
+          - --add-host
+          - "rk1-node1:{{ hostvars['rk1-node1'].ansible_host }}"
+          - --add-host
+          - "rk1-node2:{{ hostvars['rk1-node2'].ansible_host }}"
+          - --add-host
+          - "rk1-node3:{{ hostvars['rk1-node3'].ansible_host }}"
+          - --add-host
+          - "rk1-node4:{{ hostvars['rk1-node4'].ansible_host }}"
+          - --volume
+          - "{{ ycsb_workload_file }}:/workload:ro"
+          - "{{ ycsb_image }}"
+          - run
+          - mongodb
+          - -P
+          - /workload
+          - -p
+          - "recordcount={{ ycsb_record_count }}"
+          - -p
+          - "mongodb.url=mongodb://{{ ycsb_primary_host }}:{{ ycsb_primary_port }}/{{ ycsb_database }}?directConnection=true"
+          - -p
+          - "operationcount={{ ycsb_operation_count }}"
+          - -p
+          - "threadcount={{ item }}"
+          - -p
+          - "mongodb.read_preference=primary"
+          - -p
+          - "mongodb.write_concern={{ ycsb_cache_pressure_write_concern }}"
+      loop: "{{ ycsb_threads_sweep }}"
+      loop_control:
+        label: "threads={{ item }}"
+      register: ycsb_runs
+      changed_when: true
+      # GNU timeout returns 124 after sending SIGINT at the requested duration.
+      # Exit 137 means the grace period expired and remains a failure.
+      failed_when: >-
+        ycsb_runs.rc not in [0, 124] or
+        'Run finished' not in (ycsb_runs.stdout | default(''))
+
+    - name: Display YCSB load result
+      ansible.builtin.debug:
+        var: ycsb_load.stdout_lines
+      when: load_dataset | bool
+
+    - name: Save YCSB load result
+      ansible.builtin.copy:
+        dest: "{{ ycsb_results_dir }}/{{ file_prefix }}-load.txt"
+        mode: '0644'
+        content: "{{ (ycsb_load.stdout | default('')) ~ '\n' ~ (ycsb_load.stderr | default('')) }}"
+      when: load_dataset | bool
+
+    - name: Save YCSB thread-sweep results
+      ansible.builtin.copy:
+        dest: "{{ ycsb_results_dir }}/{{ file_prefix }}-threads-{{ item.item }}.txt"
+        mode: '0644'
+        content: "{{ (item.stdout | default('')) ~ '\n' ~ (item.stderr | default('')) }}"
+      loop: "{{ ycsb_runs.results }}"
+      loop_control:
+        label: "threads={{ item.item }}"
+
+    - name: Generate YCSB thread-sweep report
+      ansible.builtin.command:
+        argv:
+          - python3
+          - ycsb_report.py
+          - --results-dir
+          - "{{ ycsb_results_dir }}"
+          - --prefix
+          - "{{ file_prefix }}"
+          - --output-prefix
+          - "{{ file_prefix }}"
+        chdir: "{{ playbook_dir }}"
+      register: ycsb_report
+      changed_when: true
+
+    - name: Display YCSB report paths
+      ansible.builtin.debug:
+        var: ycsb_report.stdout
+
+    - name: Display YCSB thread-sweep results
+      ansible.builtin.debug:
+        msg: "{{ item.item }} threads: {{ item.stdout_lines }}"
+      loop: "{{ ycsb_runs.results }}"
+      loop_control:
+        label: "threads={{ item.item }}"
