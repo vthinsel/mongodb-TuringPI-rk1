@@ -23,17 +23,26 @@
 
     - name: Pull all tagged Docker images
       ansible.builtin.shell: |
-        docker image ls --format '{% raw %}{{.Repository}}:{{.Tag}}{% endraw %}' \
-          | awk '$1 !~ /^<none>:/ && $1 !~ /^:/ { print }' \
+        set -o pipefail
+        docker image ls --format '{% raw %}{{.Repository}} {{.Tag}}{% endraw %}' \
+          | awk '$1 != "<none>" && $2 != "<none>" && NF == 2 { print $1 ":" $2 }' \
           | sort -u \
-          | xargs -r -n1 docker pull
+          | while IFS= read -r image; do
+              docker pull "$image" || exit $?
+            done
       register: docker_image_updates
       changed_when: false
+      args:
+        executable: /bin/bash
 
     - name: Check if reboot is required
       ansible.builtin.stat:
         path: /var/run/reboot-required
       register: reboot_required
+
+    - name: Clean apt package cache
+      ansible.builtin.command: apt-get clean
+      changed_when: false
 
     - name: Reboot when requested and required
       ansible.builtin.reboot:

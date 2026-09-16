@@ -268,8 +268,12 @@
           - docker-ce-cli
           - containerd.io
           - docker-compose-plugin
+          - logrotate
         state: present
         update_cache: yes
+
+    - name: Configure container logging and reclaim root filesystem space
+      include_tasks: configure_container_logging_tasks.yml
         
     - name: 🐳 Start and enable Docker
       systemd:
@@ -371,6 +375,12 @@
     - name: restart_docker
       systemd:
         name: docker
+        daemon_reload: yes
+        state: restarted
+
+    - name: restart_systemd_journald
+      systemd:
+        name: systemd-journald
         daemon_reload: yes
         state: restarted
 

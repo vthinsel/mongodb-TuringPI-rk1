@@ -1,0 +1,120 @@
+---
+- name: Configure Docker container log rotation
+  copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3",
+          "compress": "true"
+        }
+      }
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart_docker
+
+- name: Create systemd journal drop-in directory
+  file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configure bounded systemd journal retention
+  copy:
+    dest: /etc/systemd/journald.conf.d/10-rk1-log-retention.conf
+    content: |
+      [Journal]
+      SystemMaxUse=100M
+      RuntimeMaxUse=50M
+      SystemMaxFileSize=10M
+      RuntimeMaxFileSize=10M
+      MaxFileSec=1week
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart_systemd_journald
+
+- name: Configure rotation for legacy Docker and containerd log files
+  copy:
+    dest: /etc/logrotate.d/rk1-container-logs
+    content: |
+      /var/log/docker.log /var/log/containerd.log {
+          size 10M
+          rotate 2
+          weekly
+          missingok
+          notifempty
+          compress
+          delaycompress
+          copytruncate
+      }
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure Docker is running before cleanup
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Remove existing Docker JSON log contents
+  ansible.builtin.shell: >-
+    find /var/lib/docker/containers -type f -name '*-json.log'
+    -exec truncate -s 0 {} +
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Vacuum systemd journal to reclaim root filesystem space
+  ansible.builtin.command: journalctl --vacuum-size=50M
+  changed_when: false
+
+- name: Clean apt package cache
+  ansible.builtin.command: apt-get clean
+  changed_when: false
+
+- name: Reclaim unused Docker and containerd snapshots now
+  ansible.builtin.command: docker system prune --all --force
+  changed_when: false
+
+- name: Install periodic Docker cleanup service
+  copy:
+    dest: /etc/systemd/system/rk1-docker-prune.service
+    content: |
+      [Unit]
+      Description=Prune unused Docker objects and containerd snapshots
+      Requires=docker.service
+      After=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/docker system prune --all --force --filter until=168h
+
+- name: Install periodic Docker cleanup timer
+  copy:
+    dest: /etc/systemd/system/rk1-docker-prune.timer
+    content: |
+      [Unit]
+      Description=Daily cleanup of unused Docker objects and containerd snapshots
+
+      [Timer]
+      OnCalendar=daily
+      RandomizedDelaySec=1h
+      Persistent=true
+      Unit=rk1-docker-prune.service
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable periodic Docker cleanup timer
+  ansible.builtin.systemd:
+    name: rk1-docker-prune.timer
+    daemon_reload: yes
+    enabled: yes
+    state: started

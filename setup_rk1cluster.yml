@@ -2,7 +2,8 @@
 # Ensure RK1 cluster nodes have correct /etc/hosts entries, DNS, hostname,
 # packages updated and reboot when required. Runs one node at a time.
 - name: Setup RK1 cluster nodes
-  hosts: mongodb_cluster
+  #hosts: mongodb_cluster
+  hosts: all
   serial: 1
   become: yes
   gather_facts: yes
@@ -105,12 +106,43 @@
         path: /var/run/reboot-required
       register: reboot_required
 
+    - name: Install docker packages
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+          - logrotate
+        state: present
+
+    - name: Configure container logging and reclaim root filesystem space
+      include_tasks: configure_container_logging_tasks.yml
+
+    - name: Check if reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+
     - name: Reboot if required (kernel or important updates)
       reboot:
         reboot_timeout: 600
       when: reboot_required.stat.exists
 
   handlers:
+    - name: restart_docker
+      systemd:
+        name: docker
+        state: restarted
+        daemon_reload: yes
+
+    - name: restart_systemd_journald
+      systemd:
+        name: systemd-journald
+        state: restarted
+        daemon_reload: yes
+
     - name: restart_systemd_resolved
       systemd:
         name: systemd-resolved

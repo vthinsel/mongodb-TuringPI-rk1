@@ -1,0 +1,22 @@
+---
+- name: Configure RK1 container logging and reclaim root filesystem space
+  hosts: mongodb_cluster
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Apply container logging and cleanup policy
+      include_tasks: configure_container_logging_tasks.yml
+
+  handlers:
+    - name: restart_docker
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
+        daemon_reload: yes
+
+    - name: restart_systemd_journald
+      ansible.builtin.systemd:
+        name: systemd-journald
+        state: restarted
+        daemon_reload: yes
