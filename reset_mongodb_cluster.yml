@@ -40,16 +40,6 @@
         path: /data/mongodb
         state: absent
 
-- name: Remove legacy MongoDB container from control node
-  hosts: control
-  become: yes
-  gather_facts: no
-  tasks:
-    - name: Remove obsolete MongoDB arbiter container if present
-      community.docker.docker_container:
-        name: mongodb-arbiter
-        state: absent
-
 - name: Report reset completion
   hosts: localhost
   connection: local

@@ -2,8 +2,11 @@
 - name: Deploy MongoDB Cluster on TuringPi RK1 Modules
   hosts: mongodb_cluster
   become: yes
+  vars_files:
+    - mongodb_image_vars.yml
   vars:
-    mongodb_version: "8.3.8"
+    mongodb_uid: "1000"
+    mongodb_gid: "1000"
     replica_set_name: "turingpi_rs"
     mongodb_port: 27017
     mongodb_storage_device: "/dev/nvme0n1"
@@ -204,8 +207,8 @@
       file:
         path: "{{ mongodb_storage_mount }}/mongodb"
         state: directory
-        owner: "999"
-        group: "999"
+        owner: "{{ mongodb_uid }}"
+        group: "{{ mongodb_gid }}"
         mode: '0755'
         
     - name: 💾 Check if NVMe is already mounted
@@ -231,13 +234,31 @@
         opts: noatime,nodiratime,logbufs=8
         state: mounted
       
-    - name: 💾 Ensure MongoDB data directory exists after mount
+    - name: 💾 Check MongoDB data directory ownership after mount
+      stat:
+        path: "{{ mongodb_storage_mount }}/mongodb"
+      register: mongodb_data_directory
+
+    - name: 💾 Check MongoDB storage metadata ownership
+      stat:
+        path: "{{ mongodb_storage_mount }}/mongodb/storage.bson"
+      register: mongodb_storage_metadata
+
+    - name: 💾 Ensure MongoDB data directory exists with image ownership
       file:
         path: "{{ mongodb_storage_mount }}/mongodb"
         state: directory
-        owner: "999"
-        group: "999"
+        owner: "{{ mongodb_uid }}"
+        group: "{{ mongodb_gid }}"
         mode: '0755'
+        recurse: yes
+      when: >-
+        not mongodb_data_directory.stat.exists or
+        (mongodb_data_directory.stat.uid | string) != mongodb_uid or
+        (mongodb_data_directory.stat.gid | string) != mongodb_gid or
+        (mongodb_storage_metadata.stat.exists and
+        ((mongodb_storage_metadata.stat.uid | string) != mongodb_uid or
+        (mongodb_storage_metadata.stat.gid | string) != mongodb_gid))
         
     # Docker Installation
     - name: 🐳 Install Docker dependencies
@@ -292,15 +313,15 @@
       copy:
         content: "{{ vault_mongodb_keyfile }}"
         dest: "{{ mongodb_storage_mount }}/mongodb/keyfile"
-        owner: "999"
-        group: "999" 
+        owner: "{{ mongodb_uid }}"
+        group: "{{ mongodb_gid }}"
         mode: '0400'
-      no_log: true
+      #no_log: true
         
     - name: 🍃 Run MongoDB container - Data nodes
       community.docker.docker_container:
         name: mongodb
-        image: "mongo:{{ mongodb_version }}"
+        image: "{{ mongodb_image }}:{{ mongodb_version }}"
         state: started
         restart_policy: always
         ports:
@@ -320,15 +341,13 @@
           max-size: "10m"
           max-file: "3"
         env:
-          MONGO_INITDB_ROOT_USERNAME: "{{ vault_mongodb_admin_user }}"
-          MONGO_INITDB_ROOT_PASSWORD: "{{ vault_mongodb_admin_password }}"
+          MONGODB_INITDB_ROOT_USERNAME: "{{ vault_mongodb_admin_user }}"
+          MONGODB_INITDB_ROOT_PASSWORD: "{{ vault_mongodb_admin_password }}"
           GLIBC_TUNABLES: "{{ mongodb_glibc_tunables }}"
         command: >
           mongod 
           --replSet {{ replica_set_name }}
-          --bind_ip_all
           --keyFile /data/keyfile
-          --auth
           --wiredTigerCacheSizeGB {{ mongodb_wiredtiger_cache_size_gb }}
           --wiredTigerCollectionBlockCompressor {{ mongodb_wiredtiger_collection_compressor }}
         healthcheck:
@@ -336,7 +355,7 @@
           interval: 30s
           timeout: 10s
           retries: 3
-      no_log: true
+      #no_log: true
       
     - name: 🍃 Wait for MongoDB to be ready
       wait_for:
@@ -409,7 +428,7 @@
       delay: 10
       until: rs_init.rc == 0 or 'already initialized' in (rs_init.stdout | lower) or 'already initialized' in (rs_init.stderr | lower)
       failed_when: rs_init.rc != 0 and 'already initialized' not in (rs_init.stdout | lower) and 'already initialized' not in (rs_init.stderr | lower)
-      no_log: true
+      #no_log: true
       
     - name: 🎯 Create admin user
       shell: |

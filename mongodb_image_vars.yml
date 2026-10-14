@@ -1,0 +1,3 @@
+mongodb_image: "mongodb/mongodb-community-server"
+mongodb_version: "8.3.13-ubi8-slim"
+#mongodb_version: "9.0.4-ubi9-slim

@@ -3,8 +3,12 @@
   hosts: mongodb_cluster
   become: yes
   serial: 1
+  vars_files:
+    - mongodb_image_vars.yml
   vars:
-    mongodb_version: "8.3.8"
+    mongodb_uid: "1000"
+    mongodb_gid: "1000"
+    mongodb_storage_mount: "/data"
     replica_set_name: "turingpi_rs"
     mongodb_port: 27017
 
@@ -19,10 +23,18 @@
           is really intended.
 
   tasks:
+    - name: Ensure MongoDB data files are owned by the image user
+      ansible.builtin.file:
+        path: "{{ mongodb_storage_mount }}/mongodb"
+        state: directory
+        owner: "{{ mongodb_uid }}"
+        group: "{{ mongodb_gid }}"
+        recurse: yes
+
     - name: Recreate MongoDB without client or replica-set authentication
       community.docker.docker_container:
         name: mongodb
-        image: "mongo:{{ mongodb_version }}"
+        image: "{{ mongodb_image }}:{{ mongodb_version }}"
         state: started
         restart_policy: always
         recreate: true
@@ -34,9 +46,9 @@
           rk1-node3: "{{ hostvars['rk1-node3'].ansible_host }}"
           rk1-node4: "{{ hostvars['rk1-node4'].ansible_host }}"
         volumes:
-          - /data/mongodb:/data/db
+          - "{{ mongodb_storage_mount }}/mongodb:/data/db"
         command: >-
-          mongod --replSet {{ replica_set_name }} --bind_ip_all
+          mongod --replSet {{ replica_set_name }}
         healthcheck:
           test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
           interval: 30s
