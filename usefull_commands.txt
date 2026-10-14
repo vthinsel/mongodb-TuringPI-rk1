@@ -84,3 +84,28 @@ apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_da
 apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run2 -e ycsb_record_count=50000000
 apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run3 -e ycsb_record_count=50000000
 apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=thpon-largeds-run4 -e ycsb_record_count=50000000
+
+
+-- Mongo 8 --
+
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=mongo8-smallds-run1 -e ycsb_record_count=500000 -e load_dataset=true
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=mongo8-smallds-run2 -e ycsb_record_count=500000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=mongo8-smallds-run3 -e ycsb_record_count=500000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=mongo8-smallds-run4 -e ycsb_record_count=500000
+
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=mongo8-largeds-run1 -e ycsb_record_count=50000000 -e load_dataset=true
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=mongo8-largeds-run2 -e ycsb_record_count=50000000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=mongo8-largeds-run3 -e ycsb_record_count=50000000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=mongo8-largeds-run4 -e ycsb_record_count=50000000
+
+-- Mongo 9 --
+
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=mongo9-smallds-run1 -e ycsb_record_count=500000 -e load_dataset=true
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=mongo9-smallds-run2 -e ycsb_record_count=500000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=mongo9-smallds-run3 -e ycsb_record_count=500000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsbsmall -e file_prefix=mongo9-smallds-run4 -e ycsb_record_count=500000
+
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=mongo9-largeds-run1 -e ycsb_record_count=50000000 -e load_dataset=true
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=mongo9-largeds-run2 -e ycsb_record_count=50000000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=mongo9-largeds-run3 -e ycsb_record_count=50000000
+apb ycsb_cache_pressure_test.yml -e confirm_unauthenticated_ycsb=true -e ycsb_database=ycsblarge -e file_prefix=mongo9-largeds-run4 -e ycsb_record_count=50000000

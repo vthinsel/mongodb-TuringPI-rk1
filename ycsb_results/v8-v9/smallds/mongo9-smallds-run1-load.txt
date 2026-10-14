@@ -1,0 +1,33 @@
+Using request distribution 'zipfian' a keyrange of [0 499999]
+Connected to MongoDB! Using database "ycsbsmall"
+***************** properties *****************
+"operationcount"="50000000000"
+"recordcount"="500000"
+"insertcount"="500000"
+"threadcount"="32"
+"table"="usertable"
+"fieldlength"="100"
+"mongodb.write_concern"="1"
+"writeallfields"="True"
+"readmodifywriteproportion"="0.0"
+"scanlengthdistribution"="uniform"
+"dotransactions"="false"
+"workload"="site.ycsb.workloads.CoreWorkload"
+"fieldcount"="10"
+"scanproportion"="0.15"
+"insertproportion"="0.0"
+"readproportion"="0.6"
+"command"="load"
+"mongodb.url"="mongodb://rk1-node1:27017/ycsbsmall?directConnection=true"
+"requestdistribution"="zipfian"
+"readallfields"="True"
+"updateproportion"="0.25"
+**********************************************
+INSERT - Takes(s): 9.9, Count: 176229, OPS: 17795.1, Avg(us): 1792, Min(us): 352, Max(us): 252287, 50th(us): 1249, 90th(us): 3079, 95th(us): 4029, 99th(us): 9679, 99.9th(us): 30607, 99.99th(us): 108543
+TOTAL  - Takes(s): 9.9, Count: 176128, OPS: 17792.7, Avg(us): 1792, Min(us): 352, Max(us): 252287, 50th(us): 1249, 90th(us): 3079, 95th(us): 4029, 99th(us): 9679, 99.9th(us): 30895, 99.99th(us): 108543
+INSERT - Takes(s): 19.9, Count: 352995, OPS: 17737.7, Avg(us): 1789, Min(us): 352, Max(us): 252287, 50th(us): 1244, 90th(us): 3113, 95th(us): 4081, 99th(us): 9871, 99.9th(us): 29167, 99.99th(us): 105151
+TOTAL  - Takes(s): 19.9, Count: 352963, OPS: 17738.9, Avg(us): 1789, Min(us): 352, Max(us): 252287, 50th(us): 1244, 90th(us): 3113, 95th(us): 4077, 99th(us): 9871, 99.9th(us): 29167, 99.99th(us): 105151
+**********************************************
+Run finished, takes 28.810653678s
+INSERT - Takes(s): 28.7, Count: 500000, OPS: 17417.3, Avg(us): 1793, Min(us): 352, Max(us): 252287, 50th(us): 1235, 90th(us): 3143, 95th(us): 4123, 99th(us): 10247, 99.9th(us): 28687, 99.99th(us): 86015
+TOTAL  - Takes(s): 28.7, Count: 500000, OPS: 17416.3, Avg(us): 1793, Min(us): 352, Max(us): 252287, 50th(us): 1235, 90th(us): 3143, 95th(us): 4123, 99th(us): 10247, 99.9th(us): 28687, 99.99th(us): 86015
